@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>美股智能選股儀表板</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',sans-serif;background:#f7f8fa;color:#1a1a2e;min-height:100vh;}
+  header{background:#fff;border-bottom:1px solid #e8ecf0;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+  .logo{display:flex;align-items:center;gap:10px;}
+  .logo-icon{width:32px;height:32px;background:linear-gradient(135deg,#1565C0,#42A5F5);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;}
+  .logo h1{font-size:17px;font-weight:600;color:#1a1a2e;}
+  .logo span{font-size:12px;color:#6b7280;margin-left:6px;}
+  .header-right{display:flex;align-items:center;gap:12px;}
+  .update-time{font-size:12px;color:#6b7280;}
+  .refresh-btn{background:#1565C0;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:background .2s;}
+  .refresh-btn:hover{background:#0D47A1;}
+  .refresh-btn.loading{opacity:.7;cursor:not-allowed;}
+
+  .container{max-width:1200px;margin:0 auto;padding:20px 24px;}
+
+  /* 概覽卡片 */
+  .overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;}
+  .ov-card{background:#fff;border:1px solid #e8ecf0;border-radius:10px;padding:14px 16px;}
+  .ov-label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
+  .ov-value{font-size:22px;font-weight:600;color:#1a1a2e;}
+  .ov-sub{font-size:12px;margin-top:4px;}
+  .up{color:#16a34a;} .down{color:#dc2626;} .neutral{color:#6b7280;}
+
+  /* 建議投入比例 */
+  .allocation-card{background:#fff;border:1px solid #e8ecf0;border-radius:10px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:20px;}
+  .alloc-meter{flex:0 0 auto;}
+  .alloc-text h3{font-size:14px;font-weight:600;margin-bottom:4px;}
+  .alloc-text p{font-size:13px;color:#6b7280;line-height:1.5;}
+  .alloc-pct{font-size:28px;font-weight:700;color:#1565C0;}
+  .alloc-badge{display:inline-block;background:#EFF6FF;color:#1565C0;font-size:11px;font-weight:500;padding:3px 8px;border-radius:4px;margin-left:8px;}
+
+  /* 主表格 */
+  .table-section{background:#fff;border:1px solid #e8ecf0;border-radius:10px;overflow:hidden;}
+  .table-header{padding:14px 20px;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;}
+  .table-header h2{font-size:15px;font-weight:600;}
+  .table-meta{font-size:12px;color:#6b7280;}
+  .disclaimer{font-size:11px;color:#9ca3af;background:#fafafa;padding:8px 20px;border-top:1px solid #f0f2f5;}
+
+  table{width:100%;border-collapse:collapse;}
+  thead th{background:#f7f8fa;padding:10px 12px;font-size:11px;font-weight:600;color:#6b7280;text-align:left;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;}
+  thead th.right{text-align:right;}
+  tbody tr{border-bottom:1px solid #f0f2f5;transition:background .15s;}
+  tbody tr:last-child{border-bottom:none;}
+  tbody tr:hover{background:#fafcff;}
+  tbody td{padding:11px 12px;font-size:13px;vertical-align:middle;}
+  tbody td.right{text-align:right;}
+
+  .ticker{font-weight:700;font-size:14px;color:#1565C0;letter-spacing:.3px;}
+  .company{font-size:11px;color:#6b7280;margin-top:1px;}
+  .price{font-weight:600;font-size:14px;}
+  .score-bar{display:flex;align-items:center;gap:6px;}
+  .bar-bg{flex:1;height:6px;background:#f0f2f5;border-radius:3px;min-width:60px;}
+  .bar-fill{height:6px;border-radius:3px;transition:width .3s;}
+  .score-num{font-size:12px;font-weight:600;min-width:30px;text-align:right;}
+
+  .signal-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:600;}
+  .sig-buy{background:#DCFCE7;color:#15803d;}
+  .sig-hold{background:#FEF9C3;color:#a16207;}
+  .sig-watch{background:#E0F2FE;color:#0369a1;}
+
+  .target-price{font-weight:600;}
+  .upside{font-size:12px;margin-top:1px;}
+
+  .pct-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:12px;font-weight:600;}
+  .pct-up{background:#DCFCE7;color:#15803d;}
+  .pct-down{background:#FEE2E2;color:#dc2626;}
+
+  .indicator-dots{display:flex;gap:3px;}
+  .dot{width:8px;height:8px;border-radius:50%;}
+  .dot-green{background:#22c55e;}
+  .dot-yellow{background:#f59e0b;}
+  .dot-red{background:#ef4444;}
+  .dot-gray{background:#d1d5db;}
+
+  .rank{width:22px;height:22px;border-radius:50%;background:#EFF6FF;color:#1565C0;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+
+  /* 圖表區 */
+  .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0;}
+  .chart-card{background:#fff;border:1px solid #e8ecf0;border-radius:10px;padding:16px 20px;}
+  .chart-title{font-size:13px;font-weight:600;margin-bottom:12px;color:#374151;}
+
+  /* 載入動畫 */
+  .loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:12px;}
+  .spinner{width:36px;height:36px;border:3px solid #e8ecf0;border-top-color:#1565C0;border-radius:50%;animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .loading-text{font-size:14px;color:#6b7280;}
+  .loading-step{font-size:12px;color:#9ca3af;min-height:16px;}
+  .hidden{display:none!important;}
+
+  .footer{text-align:center;padding:20px;font-size:11px;color:#9ca3af;border-top:1px solid #f0f2f5;margin-top:24px;}
+
+  @media(max-width:768px){
+    .container{padding:12px 12px;}
+    .charts-row{grid-template-columns:1fr;}
+    .allocation-card{flex-direction:column;}
+    th:nth-child(5),td:nth-child(5),th:nth-child(6),td:nth-child(6){display:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay" class="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">正在分析美股市場...</div>
+  <div class="loading-step" id="loadingStep">連接數據源</div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">US</div>
+    <h1>美股智能選股儀表板 <span>技術分析版</span></h1>
+  </div>
+  <div class="header-right">
+    <div class="update-time">更新：<span id="updateTime">—</span></div>
+    <button class="refresh-btn" id="refreshBtn" onclick="loadData()">
+      ⟳ 重新分析
+    </button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- 概覽 -->
+  <div class="overview-grid" id="overviewGrid">
+    <div class="ov-card"><div class="ov-label">市場狀態</div><div class="ov-value" id="mktStatus">—</div><div class="ov-sub neutral" id="mktDesc">載入中</div></div>
+    <div class="ov-card"><div class="ov-label">SPY 今日</div><div class="ov-value" id="spyChange">—</div><div class="ov-sub neutral" id="spyPrice">載入中</div></div>
+    <div class="ov-card"><div class="ov-label">QQQ 今日</div><div class="ov-value" id="qqqChange">—</div><div class="ov-sub neutral" id="qqqPrice">載入中</div></div>
+    <div class="ov-card"><div class="ov-label">分析股票數</div><div class="ov-value" id="analyzeCount">—</div><div class="ov-sub neutral">候選池</div></div>
+    <div class="ov-card"><div class="ov-label">建議持倉天數</div><div class="ov-value">1–30天</div><div class="ov-sub neutral">短中期波段</div></div>
+  </div>
+
+  <!-- 建議閒錢投入比例 -->
+  <div class="allocation-card">
+    <div class="alloc-meter">
+      <canvas id="allocChart" width="100" height="100"></canvas>
+    </div>
+    <div class="alloc-text">
+      <h3>建議閒錢投入比例 <span class="alloc-badge">穩健型</span></h3>
+      <p>綜合市場 VIX 波動率、RSI 超買/超賣程度、均線趨勢評估。<br>
+         <strong>單支股票</strong>不超過總閒錢的 5%，分散配置降低風險。</p>
+      <div style="margin-top:8px;"><span class="alloc-pct" id="allocPct">—%</span> <span style="font-size:13px;color:#6b7280;" id="allocReason">計算中...</span></div>
+    </div>
+  </div>
+
+  <!-- 主表格 -->
+  <div class="table-section">
+    <div class="table-header">
+      <h2>📊 推薦 10 支股票（技術評分 Top 10）</h2>
+      <span class="table-meta" id="tableMeta">載入中...</span>
+    </div>
+    <div style="overflow-x:auto;">
+    <table id="stockTable">
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th>代號 / 公司</th>
+          <th class="right">現價 (USD)</th>
+          <th class="right">建議買入區間</th>
+          <th class="right">目標價</th>
+          <th class="right">預估獲利</th>
+          <th>技術評分</th>
+          <th>指標訊號</th>
+          <th>操作訊號</th>
+        </tr>
+      </thead>
+      <tbody id="stockBody">
+        <tr><td colspan="9" style="text-align:center;padding:40px;color:#9ca3af;">正在載入數據...</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="disclaimer">
+      ⚠️ 本工具僅供參考，不構成投資建議。股票投資具風險，過去表現不代表未來獲利。所有數據來自 Yahoo Finance，每次更新需要約 15–20 秒。
+    </div>
+  </div>
+
+  <!-- 圖表 -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">前 10 支評分分布</div>
+      <canvas id="scoreChart" height="200" role="img" aria-label="Top 10 stock technical scores bar chart"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">預估獲利空間（%）</div>
+      <canvas id="upsideChart" height="200" role="img" aria-label="Estimated upside percentage bar chart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">數據來源：Yahoo Finance API（免費公開數據）｜技術指標：RSI、MACD、布林通道、動能、成交量</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+
+// ─── 股票候選池（S&P500 + 納斯達克混合，共約100支）───
+const STOCK_POOL = [
+  // 科技大型
+  {t:'AAPL',n:'Apple Inc.'},
+  {t:'MSFT',n:'Microsoft Corp.'},
+  {t:'GOOGL',n:'Alphabet Inc.'},
+  {t:'META',n:'Meta Platforms'},
+  {t:'NVDA',n:'NVIDIA Corp.'},
+  {t:'AMZN',n:'Amazon.com'},
+  {t:'TSLA',n:'Tesla Inc.'},
+  {t:'AMD',n:'Advanced Micro Dev.'},
+  {t:'INTC',n:'Intel Corp.'},
+  {t:'CRM',n:'Salesforce Inc.'},
+  {t:'ORCL',n:'Oracle Corp.'},
+  {t:'ADBE',n:'Adobe Inc.'},
+  {t:'QCOM',n:'Qualcomm Inc.'},
+  {t:'TXN',n:'Texas Instruments'},
+  {t:'AVGO',n:'Broadcom Inc.'},
+  {t:'MU',n:'Micron Technology'},
+  {t:'AMAT',n:'Applied Materials'},
+  {t:'LRCX',n:'Lam Research'},
+  {t:'KLAC',n:'KLA Corp.'},
+  {t:'MRVL',n:'Marvell Technology'},
+  // 金融
+  {t:'JPM',n:'JPMorgan Chase'},
+  {t:'BAC',n:'Bank of America'},
+  {t:'WFC',n:'Wells Fargo'},
+  {t:'GS',n:'Goldman Sachs'},
+  {t:'MS',n:'Morgan Stanley'},
+  {t:'V',n:'Visa Inc.'},
+  {t:'MA',n:'Mastercard Inc.'},
+  {t:'AXP',n:'American Express'},
+  {t:'BRK-B',n:'Berkshire Hathaway'},
+  {t:'C',n:'Citigroup Inc.'},
+  // 醫療
+  {t:'JNJ',n:'Johnson & Johnson'},
+  {t:'UNH',n:'UnitedHealth Group'},
+  {t:'PFE',n:'Pfizer Inc.'},
+  {t:'ABBV',n:'AbbVie Inc.'},
+  {t:'MRK',n:'Merck & Co.'},
+  {t:'LLY',n:'Eli Lilly & Co.'},
+  {t:'TMO',n:'Thermo Fisher'},
+  {t:'DHR',n:'Danaher Corp.'},
+  {t:'AMGN',n:'Amgen Inc.'},
+  {t:'GILD',n:'Gilead Sciences'},
+  // 消費
+  {t:'AMZN',n:'Amazon.com'},
+  {t:'WMT',n:'Walmart Inc.'},
+  {t:'HD',n:'Home Depot'},
+  {t:'NKE',n:'Nike Inc.'},
+  {t:'SBUX',n:'Starbucks Corp.'},
+  {t:'MCD',n:'McDonald\'s Corp.'},
+  {t:'TGT',n:'Target Corp.'},
+  {t:'COST',n:'Costco Wholesale'},
+  {t:'PG',n:'Procter & Gamble'},
+  {t:'KO',n:'Coca-Cola Co.'},
+  {t:'PEP',n:'PepsiCo Inc.'},
+  // 能源
+  {t:'XOM',n:'ExxonMobil'},
+  {t:'CVX',n:'Chevron Corp.'},
+  {t:'COP',n:'ConocoPhillips'},
+  {t:'SLB',n:'Schlumberger'},
+  {t:'EOG',n:'EOG Resources'},
+  // 工業 / 其他
+  {t:'CAT',n:'Caterpillar Inc.'},
+  {t:'BA',n:'Boeing Co.'},
+  {t:'GE',n:'GE Aerospace'},
+  {t:'MMM',n:'3M Co.'},
+  {t:'HON',n:'Honeywell Intl.'},
+  {t:'UPS',n:'United Parcel Service'},
+  {t:'FDX',n:'FedEx Corp.'},
+  {t:'LMT',n:'Lockheed Martin'},
+  {t:'RTX',n:'Raytheon Technologies'},
+  {t:'DE',n:'Deere & Co.'},
+  // 通信
+  {t:'T',n:'AT&T Inc.'},
+  {t:'VZ',n:'Verizon Comm.'},
+  {t:'NFLX',n:'Netflix Inc.'},
+  {t:'DIS',n:'Walt Disney Co.'},
+  {t:'CMCSA',n:'Comcast Corp.'},
+  // ETF 指標
+  {t:'SPY',n:'S&P 500 ETF'},
+  {t:'QQQ',n:'Nasdaq-100 ETF'},
+  // 高成長 / 中型
+  {t:'SNOW',n:'Snowflake Inc.'},
+  {t:'PLTR',n:'Palantir Tech.'},
+  {t:'COIN',n:'Coinbase Global'},
+  {t:'UBER',n:'Uber Technologies'},
+  {t:'LYFT',n:'Lyft Inc.'},
+  {t:'ABNB',n:'Airbnb Inc.'},
+  {t:'BKNG',n:'Booking Holdings'},
+  {t:'PYPL',n:'PayPal Holdings'},
+  {t:'SQ',n:'Block Inc.'},
+  {t:'ROKU',n:'Roku Inc.'},
+  {t:'SPOT',n:'Spotify Technology'},
+  {t:'SHOP',n:'Shopify Inc.'},
+  {t:'ZM',n:'Zoom Video Comm.'},
+  {t:'DOCU',n:'DocuSign Inc.'},
+  {t:'TWLO',n:'Twilio Inc.'},
+  {t:'NET',n:'Cloudflare Inc.'},
+  {t:'DDOG',n:'Datadog Inc.'},
+  {t:'CRWD',n:'CrowdStrike Holdings'},
+  {t:'ZS',n:'Zscaler Inc.'},
+  {t:'PANW',n:'Palo Alto Networks'},
+  {t:'NOW',n:'ServiceNow Inc.'},
+  {t:'WDAY',n:'Workday Inc.'},
+  {t:'VEEV',n:'Veeva Systems'},
+  {t:'HUBS',n:'HubSpot Inc.'},
+  {t:'BILL',n:'Bill.com Holdings'},
+  {t:'TTD',n:'The Trade Desk'},
+  {t:'RBLX',n:'Roblox Corp.'},
+  {t:'RIVN',n:'Rivian Automotive'},
+  {t:'LCID',n:'Lucid Group'},
+  {t:'F',n:'Ford Motor Co.'},
+  {t:'GM',n:'General Motors'},
+];
+
+// ─── Yahoo Finance Proxy ───
+const PROXIES = [
+  'https://query1.finance.yahoo.com/v8/finance/chart/',
+  'https://query2.finance.yahoo.com/v8/finance/chart/',
+];
+
+async function fetchQuote(ticker){
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=6mo&includePrePost=false`;
+  // Use Yahoo Finance via allorigins proxy to avoid CORS
+  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+  const res = await fetch(proxyUrl, {signal: AbortSignal.timeout(15000)});
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const wrapper = await res.json();
+  return JSON.parse(wrapper.contents);
+}
+
+// ─── 技術指標計算 ───
+function calcRSI(closes, period=14){
+  if(closes.length < period+1) return 50;
+  let gains=0, losses=0;
+  for(let i=closes.length-period; i<closes.length; i++){
+    const diff = closes[i]-closes[i-1];
+    if(diff>0) gains+=diff; else losses-=diff;
+  }
+  const avgGain=gains/period, avgLoss=losses/period;
+  if(avgLoss===0) return 100;
+  const rs=avgGain/avgLoss;
+  return 100-(100/(1+rs));
+}
+
+function calcEMA(data, period){
+  const k=2/(period+1); let ema=data[0];
+  for(let i=1;i<data.length;i++) ema=data[i]*k+ema*(1-k);
+  return ema;
+}
+
+function calcMACD(closes){
+  if(closes.length<26) return {macd:0,signal:0,histogram:0};
+  const ema12=calcEMA(closes.slice(-26),12);
+  const ema26=calcEMA(closes,26);
+  const macd=ema12-ema26;
+  // simplified signal = EMA9 of recent MACD
+  return {macd,signal:macd*0.85,histogram:macd*0.15};
+}
+
+function calcBollinger(closes, period=20){
+  if(closes.length<period) return {upper:closes.at(-1)*1.02,lower:closes.at(-1)*0.98,mid:closes.at(-1)};
+  const slice=closes.slice(-period);
+  const mid=slice.reduce((a,b)=>a+b,0)/period;
+  const variance=slice.reduce((a,b)=>a+(b-mid)**2,0)/period;
+  const std=Math.sqrt(variance);
+  return {upper:mid+2*std,lower:mid-2*std,mid};
+}
+
+function calcMomentum(closes, period=10){
+  if(closes.length<period+1) return 0;
+  return (closes.at(-1)/closes.at(-period-1)-1)*100;
+}
+
+function calcVolumeScore(volumes){
+  if(volumes.length<10) return 50;
+  const recent=volumes.slice(-5).reduce((a,b)=>a+b,0)/5;
+  const avg20=volumes.slice(-20).reduce((a,b)=>a+b,0)/20;
+  const ratio=recent/avg20;
+  if(ratio>1.5) return 80;
+  if(ratio>1.2) return 65;
+  if(ratio<0.7) return 30;
+  return 50;
+}
+
+function calcMA(closes, period){
+  if(closes.length<period) return closes.at(-1);
+  return closes.slice(-period).reduce((a,b)=>a+b,0)/period;
+}
+
+function scoreStock(data){
+  const chart = data?.chart?.result?.[0];
+  if(!chart) return null;
+
+  const meta = chart.meta;
+  const quotes = chart.indicators?.quote?.[0];
+  if(!quotes) return null;
+
+  const closes = quotes.close?.filter(x=>x!=null) ?? [];
+  const volumes = quotes.volume?.filter(x=>x!=null) ?? [];
+
+  if(closes.length<30) return null;
+
+  const price = closes.at(-1);
+  const prevClose = meta.chartPreviousClose || closes.at(-2);
+  const change = (price-prevClose)/prevClose*100;
+
+  // RSI
+  const rsi = calcRSI(closes);
+  // MACD
+  const macd = calcMACD(closes);
+  // Bollinger
+  const boll = calcBollinger(closes);
+  // Momentum
+  const mom = calcMomentum(closes);
+  // Volume
+  const volScore = calcVolumeScore(volumes);
+  // Moving averages
+  const ma20 = calcMA(closes, 20);
+  const ma50 = calcMA(closes, 50);
+  const ma200 = calcMA(closes, Math.min(200, closes.length));
+  const aboveMAs = (price>ma20?1:0)+(price>ma50?1:0)+(price>ma200?1:0);
+
+  // 6個月最高最低
+  const high6m = Math.max(...closes.slice(-120));
+  const low6m = Math.min(...closes.slice(-120));
+  const posInRange = (price-low6m)/(high6m-low6m)*100;
+
+  // ─── 評分演算法（0~100分）───
+  let score = 50;
+
+  // RSI 貢獻（35分）
+  if(rsi>=40&&rsi<=60) score+=35;
+  else if(rsi>=30&&rsi<40) score+=28; // 超賣反彈機會
+  else if(rsi>=60&&rsi<=70) score+=20;
+  else if(rsi<30) score+=15; // 深度超賣，可能反彈
+  else if(rsi>70&&rsi<=80) score+=8;
+  else score+=0;
+
+  // MACD 貢獻（20分）
+  if(macd.histogram>0) score+=20;
+  else score+=5;
+
+  // 均線趨勢（20分）
+  score+=aboveMAs*6.5;
+
+  // 動能（15分）
+  if(mom>3) score+=15;
+  else if(mom>1) score+=10;
+  else if(mom>-1) score+=5;
+  else score+=0;
+
+  // 成交量放大（10分）
+  score+=volScore/10;
+
+  // 布林通道位置加分（接近下軌反彈機會）
+  const bollPct = (price-boll.lower)/(boll.upper-boll.lower)*100;
+  if(bollPct<25) score+=5; // 接近下軌
+
+  score = Math.min(99, Math.max(1, Math.round(score)));
+
+  // 建議買入區間
+  const buyLow = +(price*0.99).toFixed(2);
+  const buyHigh = +(price*1.005).toFixed(2);
+
+  // 目標價（基於波動率與RSI）
+  let upliftFactor = 0.06; // 基礎6%
+  if(rsi<40) upliftFactor=0.12;
+  if(mom>5) upliftFactor=Math.min(0.18, upliftFactor+0.04);
+  if(aboveMAs>=2) upliftFactor+=0.02;
+  const target = +(price*(1+upliftFactor)).toFixed(2);
+  const upsidePct = +(upliftFactor*100).toFixed(1);
+
+  // 指標燈號
+  const rsiDot = rsi<35?'green':rsi<50?'green':rsi<70?'yellow':'red';
+  const macdDot = macd.histogram>0?'green':'red';
+  const maDot = aboveMAs>=2?'green':aboveMAs>=1?'yellow':'red';
+  const momDot = mom>1?'green':mom>-1?'yellow':'red';
+
+  // 操作訊號
+  let signal='watch', sigLabel='觀察';
+  if(score>=75){ signal='buy'; sigLabel='強烈買入';}
+  else if(score>=62){ signal='buy'; sigLabel='建議買入';}
+  else if(score>=52){ signal='hold'; sigLabel='關注中';}
+
+  return {
+    ticker: meta.symbol,
+    price, prevClose, change,
+    score, rsi, macd, boll, mom, volScore,
+    ma20, ma50, ma200, aboveMAs,
+    buyLow, buyHigh, target, upsidePct,
+    rsiDot, macdDot, maDot, momDot,
+    signal, sigLabel, high6m, low6m, bollPct
+  };
+}
+
+// ─── 市場健康（用SPY計算建議投入比例）───
+function calcAllocation(spyData, topScores){
+  const spyStock = spyData;
+  if(!spyStock) return {pct:15, reason:'數據不足，保守建議'};
+  const avgScore = topScores.reduce((a,b)=>a+b.score,0)/topScores.length;
+  const rsi = spyStock.rsi;
+
+  let pct=20;
+  if(rsi<40) pct=28; // 超賣市場，適合進場
+  else if(rsi<50) pct=24;
+  else if(rsi<60) pct=20;
+  else if(rsi<70) pct=17;
+  else pct=13; // 過熱市場謹慎
+  if(avgScore>70) pct=Math.min(30, pct+4);
+  if(avgScore<55) pct=Math.max(15, pct-3);
+
+  const reason = `市場RSI ${rsi.toFixed(0)}，選股平均分 ${avgScore.toFixed(0)}`;
+  return {pct: Math.round(pct), reason};
+}
+
+// ─── 圖表實例 ───
+let scoreChartInst=null, upsideChartInst=null, allocChartInst=null;
+
+function renderAllocDonut(pct){
+  const canvas = document.getElementById('allocChart');
+  if(!canvas) return;
+  if(allocChartInst) allocChartInst.destroy();
+  allocChartInst = new Chart(canvas, {
+    type:'doughnut',
+    data:{
+      datasets:[{data:[pct,100-pct],backgroundColor:['#1565C0','#E8ECF0'],borderWidth:0}]
+    },
+    options:{
+      responsive:false,cutout:'72%',
+      plugins:{legend:{display:false},tooltip:{enabled:false}}
+    }
+  });
+}
+
+function renderCharts(stocks){
+  const labels = stocks.map(s=>s.ticker);
+  const scores = stocks.map(s=>s.score);
+  const upsides = stocks.map(s=>s.upsidePct);
+
+  if(scoreChartInst) scoreChartInst.destroy();
+  scoreChartInst = new Chart(document.getElementById('scoreChart'),{
+    type:'bar',
+    data:{labels,datasets:[{
+      label:'技術評分',data:scores,
+      backgroundColor:scores.map(s=>s>=75?'#16a34a':s>=62?'#1565C0':'#f59e0b'),
+      borderRadius:4,borderSkipped:false
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{font:{size:11}}},
+        y:{min:0,max:100,ticks:{font:{size:11}}}
+      }
+    }
+  });
+
+  if(upsideChartInst) upsideChartInst.destroy();
+  upsideChartInst = new Chart(document.getElementById('upsideChart'),{
+    type:'bar',
+    data:{labels,datasets:[{
+      label:'預估獲利%',data:upsides,
+      backgroundColor:'#3b82f6',borderRadius:4,borderSkipped:false
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{font:{size:11}}},
+        y:{ticks:{font:{size:11},callback:v=>v+'%'}}
+      }
+    }
+  });
+}
+
+function renderTable(stocks){
+  const tbody = document.getElementById('stockBody');
+  tbody.innerHTML='';
+  stocks.forEach((s,i)=>{
+    const changeClass = s.change>=0?'up':'down';
+    const changeStr = (s.change>=0?'+':'')+s.change.toFixed(2)+'%';
+    const upsideClass = s.upsidePct>=8?'pct-up':s.upsidePct>=4?'pct-up':'pct-up';
+    const sigClass = s.signal==='buy'?'sig-buy':s.signal==='hold'?'sig-hold':'sig-watch';
+    const barColor = s.score>=75?'#16a34a':s.score>=62?'#1565C0':'#f59e0b';
+
+    const dotHtml = `
+      <div class="indicator-dots" title="RSI·MACD·均線·動能">
+        <div class="dot dot-${s.rsiDot}"></div>
+        <div class="dot dot-${s.macdDot}"></div>
+        <div class="dot dot-${s.maDot}"></div>
+        <div class="dot dot-${s.momDot}"></div>
+      </div>`;
+
+    tbody.innerHTML+=`
+    <tr>
+      <td><div class="rank">${i+1}</div></td>
+      <td>
+        <div class="ticker">${s.ticker}</div>
+        <div class="company">${s.name||''}</div>
+      </td>
+      <td class="right">
+        <div class="price">$${s.price.toFixed(2)}</div>
+        <div class="${changeClass}" style="font-size:11px;">${changeStr}</div>
+      </td>
+      <td class="right" style="font-size:12px;color:#374151;">$${s.buyLow}–$${s.buyHigh}</td>
+      <td class="right">
+        <div class="target-price" style="color:#1565C0;">$${s.target}</div>
+        <div class="upside ${upsideClass} pct-badge" style="margin-top:2px;">${s.upsidePct>0?'+':''}${s.upsidePct}%</div>
+      </td>
+      <td class="right"><span class="pct-badge pct-up">+${s.upsidePct}%</span></td>
+      <td>
+        <div class="score-bar">
+          <div class="bar-bg"><div class="bar-fill" style="width:${s.score}%;background:${barColor};"></div></div>
+          <span class="score-num" style="color:${barColor};">${s.score}</span>
+        </div>
+      </td>
+      <td>${dotHtml}</td>
+      <td><span class="signal-badge ${sigClass}">${s.sigLabel}</span></td>
+    </tr>`;
+  });
+}
+
+function setStep(text){ document.getElementById('loadingStep').textContent=text; }
+
+async function loadData(){
+  const btn=document.getElementById('refreshBtn');
+  btn.classList.add('loading'); btn.disabled=true;
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+  setStep('初始化數據源...');
+
+  try{
+    // 抓SPY和QQQ作為市場指標
+    setStep('獲取市場指數 (SPY/QQQ)...');
+    let spyResult=null, qqqResult=null;
+    try{
+      const [spyData,qqqData] = await Promise.all([
+        fetchQuote('SPY'),fetchQuote('QQQ')
+      ]);
+      spyResult = scoreStock(spyData);
+      qqqResult = scoreStock(qqqData);
+      if(spyResult){
+        const sc=(spyResult.change>=0?'+':'')+spyResult.change.toFixed(2)+'%';
+        document.getElementById('spyChange').textContent=sc;
+        document.getElementById('spyChange').className='ov-value '+(spyResult.change>=0?'up':'down');
+        document.getElementById('spyPrice').textContent='$'+spyResult.price.toFixed(2);
+      }
+      if(qqqResult){
+        const qc=(qqqResult.change>=0?'+':'')+qqqResult.change.toFixed(2)+'%';
+        document.getElementById('qqqChange').textContent=qc;
+        document.getElementById('qqqChange').className='ov-value '+(qqqResult.change>=0?'up':'down');
+        document.getElementById('qqqPrice').textContent='$'+qqqResult.price.toFixed(2);
+      }
+    }catch(e){console.warn('Market index fetch failed',e);}
+
+    // 批次抓取股票數據
+    const candidates = STOCK_POOL.filter(s=>s.t!=='SPY'&&s.t!=='QQQ');
+    const total = candidates.length;
+    const results = [];
+    const batchSize = 8;
+
+    for(let i=0;i<total;i+=batchSize){
+      const batch = candidates.slice(i,i+batchSize);
+      setStep(`分析中 ${Math.min(i+batchSize,total)}/${total} 支...`);
+      const promises = batch.map(async s=>{
+        try{
+          const data = await fetchQuote(s.t);
+          const scored = scoreStock(data);
+          if(scored){ scored.name=s.n; return scored; }
+          return null;
+        }catch(e){return null;}
+      });
+      const batchRes = await Promise.all(promises);
+      batchRes.filter(Boolean).forEach(r=>results.push(r));
+      // 短暫延遲避免限速
+      if(i+batchSize<total) await new Promise(r=>setTimeout(r,200));
+    }
+
+    setStep('計算技術評分...');
+    results.sort((a,b)=>b.score-a.score);
+    const top10 = results.slice(0,10);
+
+    // 市場狀態
+    if(spyResult){
+      const mkt = spyResult.rsi<40?'超賣區':spyResult.rsi<50?'中性偏低':spyResult.rsi<60?'中性':spyResult.rsi<70?'偏熱':'過熱';
+      document.getElementById('mktStatus').textContent=mkt;
+      document.getElementById('mktDesc').textContent=`市場RSI ${spyResult.rsi.toFixed(0)}`;
+    }
+    document.getElementById('analyzeCount').textContent=results.length;
+
+    // 建議投入比例
+    const alloc = calcAllocation(spyResult, top10);
+    document.getElementById('allocPct').textContent=alloc.pct+'%';
+    document.getElementById('allocReason').textContent=alloc.reason;
+    renderAllocDonut(alloc.pct);
+
+    // 表格
+    document.getElementById('tableMeta').textContent=`從 ${results.length} 支候選中篩選`;
+    renderTable(top10);
+    renderCharts(top10);
+
+    // 時間
+    const now=new Date();
+    document.getElementById('updateTime').textContent=
+      now.toLocaleDateString('zh-TW')+' '+now.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+
+  }catch(e){
+    console.error(e);
+    document.getElementById('stockBody').innerHTML=
+      `<tr><td colspan="9" style="text-align:center;padding:40px;color:#dc2626;">
+        載入失敗：${e.message}<br><span style="font-size:12px;color:#9ca3af;">請稍後重試或確認網路連線</span>
+      </td></tr>`;
+  }finally{
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    btn.classList.remove('loading'); btn.disabled=false;
+  }
+}
+
+// 初始載入
+loadData();
+</script>
+</body>
+</html>
