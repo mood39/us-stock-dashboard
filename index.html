@@ -8,19 +8,20 @@
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  /* 穩重暖色系底色 */
-  --bg:#16120e;--bg2:#1e1a14;--bg3:#26211a;
-  --border:#33291f;--border2:#3d3028;
-  --text:#f0ebe3;--text2:#a09080;--text3:#6b5e50;
-  /* 漲：螢光菊紅（台灣漲色）*/
-  --up:#ff2d78;--up-bg:rgba(255,45,120,.1);
-  /* 跌：螢光綠（台灣跌色）*/
-  --dn:#00ff88;--dn-bg:rgba(0,255,136,.1);
-  /* 主色調：暖金藍 */
-  --accent:#c8974a;--accent2:#e8b86d;
-  /* 警示黃 */
-  --yellow:#f5c842;--yellow-bg:rgba(245,200,66,.1);
-  /* 舊名稱保留相容 */
+  /* 深炭灰暖底色 */
+  --bg:#1a1714;--bg2:#221e1a;--bg3:#2c2620;
+  --border:#3a3028;--border2:#4a3e30;
+  /* 文字：暖白系 */
+  --text:#f0e8d8;--text2:#9a8870;--text3:#6a5a48;
+  /* 漲：鮮紅（台灣漲色）*/
+  --up:#ff4444;--up-bg:rgba(255,68,68,.12);
+  /* 跌：翠綠（台灣跌色）*/
+  --dn:#00c853;--dn-bg:rgba(0,200,83,.12);
+  /* 主色調：暖金 */
+  --accent:#e8a840;--accent2:#f0c060;
+  /* 警示橘黃 */
+  --yellow:#f0a030;--yellow-bg:rgba(240,160,48,.12);
+  /* 相容舊名稱 */
   --green:var(--dn);--green-bg:var(--dn-bg);
   --red:var(--up);--red-bg:var(--up-bg);
   --mono:'JetBrains Mono',monospace;
@@ -609,22 +610,32 @@ async function fetchNews(tickers){
 }
 
 // ══════════════════════════════════════════════════════
-// Claude 情緒分析（透過 Worker）
+// Claude 情緒分析（直接呼叫 Claude API）
 // ══════════════════════════════════════════════════════
 async function analyzeSentiment(newsArr){
   if(newsArr.length===0) return[];
   const headlines=newsArr.map((n,i)=>`${i+1}. [${n.ticker}] ${n.headline}`).join('\n');
-  const prompt=`你是金融新聞情緒分析師。分析以下半導體新聞標題，對每則輸出情緒評分。
+  const prompt=`你是資深金融分析師，專精半導體產業與總體經濟。分析以下新聞標題，輸出情緒評分。
+
+標注為「總經」的是總體經濟新聞（聯準會、貿易政策等）。
 
 ${headlines}
 
 輸出純 JSON，不要有多餘文字：
-{"results":[{"index":1,"positive":0.7,"negative":0.1,"neutral":0.2,"polarity":0.6,"impact":"high","summary":"繁體中文摘要25字內"}]}
+{"results":[{
+  "index":1,
+  "polarity":0.6,
+  "impact":"high",
+  "summary":"繁體中文摘要25字內"
+}]}
 
-規則：positive+negative+neutral=1.0，polarity範圍-1到1，impact只能high/medium/low`;
+規則：
+- polarity範圍-1到1，負面略重（×1.2）
+- impact只能high/medium/low
+- summary必須是繁體中文`;
 
   try{
-    const res=await fetch(`${WORKER}/sentiment`,{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -633,19 +644,20 @@ ${headlines}
         messages:[{role:'user',content:prompt}]
       })
     });
-    if(!res.ok) throw new Error(`sentiment ${res.status}`);
+    if(!res.ok) throw new Error(`Claude ${res.status}`);
     const d=await res.json();
     const raw=d.content.map(b=>b.text||'').join('');
     let parsed;
     try{parsed=JSON.parse(raw.trim());}
     catch(e){const m=raw.match(/\{[\s\S]*\}/);parsed=m?JSON.parse(m[0]):{results:[]};}
     return newsArr.map((n,i)=>{
-      const r=parsed.results?.find(x=>x.index===i+1)||{positive:.33,negative:.33,neutral:.34,polarity:0,impact:'low',summary:n.headline?.slice(0,25)||''};
+      const r=parsed.results?.find(x=>x.index===i+1)||{
+        polarity:0,impact:'low',summary:n.headline||''
+      };
       return{...n,...r};
     });
   }catch(e){
-    console.warn('sentiment failed:',e.message);
-    return newsArr.map(n=>({...n,polarity:0,impact:'low',summary:n.headline?.slice(0,25)||''}));
+    return newsArr.map(n=>({...n,polarity:0,impact:'low',summary:n.headline||''}));
   }
 }
 
@@ -817,33 +829,59 @@ async function runAll(){
     setP(30,'Claude AI 分析新聞情緒...');
     const newsWithSent=await analyzeSentiment(rawNews);
 
-    // 新聞渲染：只顯示有明確極性的（>0.2 或 <-0.2）
+    // 新聞渲染：總體新聞全顯示，個股新聞過濾極性
     const newsList=document.getElementById('newsList');
     newsList.innerHTML='';
-    const significantNews=newsWithSent.filter(n=>Math.abs(n.polarity||0)>0.2);
-    if(significantNews.length>0){
-      significantNews.forEach(n=>{
-        const icon=n.polarity>0.2?'📈':'📉';
-        const tagCls=n.polarity>0.2?'ntag ntag-pos':'ntag ntag-neg';
-        const tagTxt=n.polarity>0.2?'利多':'利空';
-        newsList.innerHTML+=`
-        <div class="news-item">
-          <span class="news-icon">${icon}</span>
-          <div class="news-body">
-            <div class="news-text">${n.summary||n.headline?.slice(0,50)}</div>
-            <div class="news-meta"><span style="color:var(--accent2)">${n.ticker}</span> · 極性 ${n.polarity>=0?'+':''}${n.polarity?.toFixed(2)} · ${n.impact} impact</div>
-          </div>
-          <span class="${tagCls}">${tagTxt}</span>
-        </div>`;
-      });
-      document.getElementById('newsMeta').textContent=`${significantNews.length} 則有效新聞 · Finnhub + Claude AI`;
+
+    const generalNews=newsWithSent.filter(n=>n.ticker==='總經');
+    const stockNews=newsWithSent.filter(n=>n.ticker!=='總經'&&Math.abs(n.polarity||0)>0.2);
+    const displayNews=[...generalNews,...stockNews];
+
+    if(displayNews.length>0){
+      // 總體新聞區塊
+      if(generalNews.length>0){
+        newsList.innerHTML+=`<div style="padding:8px 16px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);">總體經濟</div>`;
+        generalNews.forEach(n=>{
+          const icon=n.polarity>0.1?'▲':n.polarity<-0.1?'▼':'—';
+          const iconColor=n.polarity>0.1?'var(--up)':n.polarity<-0.1?'var(--dn)':'var(--text3)';
+          const commentary=n.commentary?`<div style="font-size:11px;color:var(--accent2);margin-top:4px;">📌 ${n.commentary}</div>`:'';
+          newsList.innerHTML+=`
+          <div class="news-item">
+            <span class="news-icon" style="color:${iconColor};font-size:12px;font-weight:700;">${icon}</span>
+            <div class="news-body">
+              <div class="news-text">${n.summary||n.headline?.slice(0,60)}</div>
+              ${commentary}
+              <div class="news-meta"><span style="color:var(--accent2)">總經</span> · 極性 ${n.polarity>=0?'+':''}${n.polarity?.toFixed(2)} · ${n.impact} impact</div>
+            </div>
+            <span class="ntag ${n.polarity>0.1?'ntag-pos':n.polarity<-0.1?'ntag-neg':'ntag-neu'}">${n.polarity>0.1?'利多':n.polarity<-0.1?'利空':'中性'}</span>
+          </div>`;
+        });
+      }
+      // 個股新聞區塊
+      if(stockNews.length>0){
+        newsList.innerHTML+=`<div style="padding:8px 16px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);border-top:1px solid var(--border);">個股消息</div>`;
+        stockNews.forEach(n=>{
+          const icon=n.polarity>0.2?'▲':'▼';
+          const iconColor=n.polarity>0.2?'var(--up)':'var(--dn)';
+          newsList.innerHTML+=`
+          <div class="news-item">
+            <span class="news-icon" style="color:${iconColor};font-size:12px;font-weight:700;">${icon}</span>
+            <div class="news-body">
+              <div class="news-text">${n.summary||n.headline?.slice(0,60)}</div>
+              <div class="news-meta"><span style="color:var(--accent2)">${n.ticker}</span> · 極性 ${n.polarity>=0?'+':''}${n.polarity?.toFixed(2)} · ${n.impact} impact</div>
+            </div>
+            <span class="ntag ${n.polarity>0.2?'ntag-pos':'ntag-neg'}">${n.polarity>0.2?'利多':'利空'}</span>
+          </div>`;
+        });
+      }
+      document.getElementById('newsMeta').textContent=`總經 ${generalNews.length} 則 · 個股 ${stockNews.length} 則 · Finnhub + Claude AI`;
     }else{
       newsList.innerHTML=`
       <div class="news-item">
-        <span class="news-icon">—</span>
+        <span class="news-icon" style="color:var(--text3);">—</span>
         <div class="news-body">
           <div class="news-text" style="color:var(--text2)">今日無重大利多或利空消息</div>
-          <div class="news-meta">中性新聞已過濾 · 僅顯示極性 &gt;0.2 或 &lt;-0.2 的新聞</div>
+          <div class="news-meta">中性新聞已過濾 · 僅顯示有明確影響的新聞</div>
         </div>
       </div>`;
       document.getElementById('newsMeta').textContent='Finnhub + Claude AI';
