@@ -8,13 +8,21 @@
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  --bg:#0d0f14;--bg2:#13161e;--bg3:#1a1e2a;
-  --border:#232737;--border2:#2d3245;
-  --text:#e8eaf0;--text2:#8b90a8;--text3:#555a72;
-  --accent:#4f8ef7;--accent2:#6ba3ff;
-  --green:#34d399;--green-bg:rgba(52,211,153,.1);
-  --red:#f87171;--red-bg:rgba(248,113,113,.1);
-  --yellow:#fbbf24;--yellow-bg:rgba(251,191,36,.1);
+  /* 穩重暖色系底色 */
+  --bg:#16120e;--bg2:#1e1a14;--bg3:#26211a;
+  --border:#33291f;--border2:#3d3028;
+  --text:#f0ebe3;--text2:#a09080;--text3:#6b5e50;
+  /* 漲：螢光菊紅（台灣漲色）*/
+  --up:#ff2d78;--up-bg:rgba(255,45,120,.1);
+  /* 跌：螢光綠（台灣跌色）*/
+  --dn:#00ff88;--dn-bg:rgba(0,255,136,.1);
+  /* 主色調：暖金藍 */
+  --accent:#c8974a;--accent2:#e8b86d;
+  /* 警示黃 */
+  --yellow:#f5c842;--yellow-bg:rgba(245,200,66,.1);
+  /* 舊名稱保留相容 */
+  --green:var(--dn);--green-bg:var(--dn-bg);
+  --red:var(--up);--red-bg:var(--up-bg);
   --mono:'JetBrains Mono',monospace;
   --sans:'Inter',-apple-system,sans-serif;
 }
@@ -41,27 +49,25 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24p
 .ck-val{font-family:var(--mono);font-size:18px;font-weight:600;}
 .ck-sub{font-size:11px;color:var(--text2);margin-top:4px;}
 
-/* 期貨 */
-.fut-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;}
+/* 期貨列（含市場強度）*/
+.fut-row{display:grid;grid-template-columns:auto repeat(3,1fr);gap:12px;margin-bottom:16px;}
 .fut{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;}
 .fut-sym{font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.5px;margin-bottom:3px;}
 .fut-name{font-size:13px;font-weight:500;}
 .fut-price{font-family:var(--mono);font-size:20px;font-weight:600;text-align:right;}
 .fut-chg{font-family:var(--mono);font-size:12px;text-align:right;margin-top:3px;}
+/* 市場強度小卡 */
+.mkt-strength{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;justify-content:center;min-width:140px;}
+.mkt-str-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+.mkt-str-val{font-family:var(--mono);font-size:28px;font-weight:700;line-height:1;}
+.mkt-str-lbl{font-size:12px;font-weight:600;margin-top:4px;}
 
-/* 市場強度 */
-.strength-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;}
-.strength-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
-.strength-left h2{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:4px;}
-.strength-score{font-family:var(--mono);font-size:52px;font-weight:700;line-height:1;}
-.strength-label{font-size:13px;font-weight:600;margin-top:4px;}
-.strength-right{text-align:right;}
-.alloc-big{font-family:var(--mono);font-size:42px;font-weight:700;color:var(--accent2);}
-.alloc-sub{font-size:12px;color:var(--text2);margin-top:4px;}
+/* 市場強度子因子列 */
+.strength-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;}
 .strength-bars{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;}
 .sbar{background:var(--bg3);border-radius:8px;padding:10px 12px;}
 .sbar-label{font-size:10px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
-.sbar-val{font-family:var(--mono);font-size:14px;font-weight:600;margin-bottom:6px;}
+.sbar-val{font-family:var(--mono);font-size:13px;font-weight:600;margin-bottom:6px;}
 .sbar-bg{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
 .sbar-fill{height:4px;border-radius:2px;}
 
@@ -114,7 +120,7 @@ tbody td.r{text-align:right;} tbody td.c{text-align:center;}
 .sig-buy{background:var(--green-bg);color:var(--green);}
 .sig-watch{background:var(--yellow-bg);color:var(--yellow);}
 
-.up{color:var(--green);} .down{color:var(--red);} .neu{color:var(--text2);}
+.up{color:var(--up);} .down{color:var(--dn);} .neu{color:var(--text2);}
 
 /* 進度 */
 .prog-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:40px 20px;text-align:center;margin-bottom:16px;}
@@ -133,14 +139,16 @@ tbody td.r{text-align:right;} tbody td.c{text-align:center;}
 .hidden{display:none!important;}
 footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);margin-top:8px;}
 
-@media(max-width:900px){
-  .clock-row,.fut-row{grid-template-columns:repeat(2,1fr);}
-  .strength-bars{grid-template-columns:repeat(2,1fr);}
+@media(max-width:1000px){
+  .fut-row{grid-template-columns:repeat(2,1fr);}
+  .strength-bars{grid-template-columns:repeat(3,1fr);}
   thead th:nth-child(5),tbody td:nth-child(5){display:none;}
 }
 @media(max-width:600px){
   .container{padding:12px;}
-  .strength-top{flex-direction:column;gap:12px;}
+  .clock-row{grid-template-columns:repeat(2,1fr);}
+  .fut-row{grid-template-columns:1fr 1fr;}
+  .strength-bars{grid-template-columns:repeat(2,1fr);}
 }
 </style>
 </head>
@@ -187,8 +195,15 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     </div>
   </div>
 
-  <!-- 期貨列 -->
+  <!-- 期貨列（市場強度整合在左邊）-->
   <div class="fut-row gap">
+    <!-- 市場強度 -->
+    <div class="mkt-strength">
+      <div class="mkt-str-label">市場強度指數</div>
+      <div class="mkt-str-val neu" id="strengthScore">—</div>
+      <div class="mkt-str-lbl neu" id="strengthLabel">載入中</div>
+    </div>
+    <!-- 期貨 -->
     <div class="fut">
       <div><div class="fut-sym">NQ=F</div><div class="fut-name">納斯達克期貨</div></div>
       <div><div class="fut-price neu" id="nqPrice">—</div><div class="fut-chg neu" id="nqChg">載入中</div></div>
@@ -217,21 +232,8 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     ⚠️ <strong>分析失敗</strong><br><span id="errMsg"></span>
   </div>
 
-  <!-- 市場強度 & 建議投入 -->
+  <!-- 市場強度子因子 -->
   <div class="strength-card gap hidden" id="strengthCard">
-    <div class="strength-top">
-      <div class="strength-left">
-        <h2>市場強度指數</h2>
-        <div class="strength-score" id="strengthScore">—</div>
-        <div class="strength-label" id="strengthLabel">—</div>
-      </div>
-      <div class="strength-right">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">建議閒錢投入比例</div>
-        <div class="alloc-big" id="allocPct">—%</div>
-        <div class="alloc-sub">市場強度 = 投入比例</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:6px;">單支不超過閒錢的 5%</div>
-      </div>
-    </div>
     <div class="strength-bars">
       <div class="sbar">
         <div class="sbar-label">SPY RSI</div>
@@ -259,15 +261,6 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
         <div class="sbar-bg"><div class="sbar-fill" id="sb5Bar" style="width:0%"></div></div>
       </div>
     </div>
-  </div>
-
-  <!-- 新聞 -->
-  <div class="card gap hidden" id="newsCard">
-    <div class="card-hd">
-      <span class="card-title">📰 今日半導體重大新聞</span>
-      <span class="card-meta" id="newsMeta">Finnhub + Claude AI</span>
-    </div>
-    <div id="newsList"></div>
   </div>
 
   <!-- Top 10 -->
@@ -308,6 +301,15 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
       ⚠️ 本工具僅供參考，不構成投資建議。目標價基於 ATR 波動率與布林通道計算，非保證獲利。<br>
       Yahoo Finance 數據有 15 分鐘延遲。投報率已過濾負值，僅顯示具正報酬潛力的標的。
     </div>
+  </div>
+
+  <!-- 新聞（只顯示有極性的）-->
+  <div class="card gap hidden" id="newsCard">
+    <div class="card-hd">
+      <span class="card-title">📰 今日半導體重大新聞</span>
+      <span class="card-meta" id="newsMeta">Finnhub + Claude AI · 僅顯示有明確影響的新聞</span>
+    </div>
+    <div id="newsList"></div>
   </div>
 
 </div>
@@ -574,9 +576,12 @@ function scoreStock(closes,volumes,highs,lows,soxxC,spyC){
 
 // ══════════════════════════════════════════════════════
 // Finnhub 新聞（透過 Worker）
+// 同時抓：個股新聞 + 總體市場新聞
 // ══════════════════════════════════════════════════════
 async function fetchNews(tickers){
   const allNews=[];
+
+  // 1. 個股新聞（前8支）
   for(const t of tickers.slice(0,8)){
     try{
       const res=await fetch(`${WORKER}/news?t=${t}`,{signal:AbortSignal.timeout(8000)});
@@ -588,6 +593,18 @@ async function fetchNews(tickers){
     }catch(e){console.warn('news',t,e.message);}
     await delay(100);
   }
+
+  // 2. 總體市場新聞（聯準會、貿易政策、總經）
+  try{
+    const res=await fetch(`${WORKER}/news?t=GENERAL`,{signal:AbortSignal.timeout(8000)});
+    if(res.ok){
+      const data=await res.json();
+      if(data.news&&data.news.length>0){
+        data.news.slice(0,4).forEach(n=>allNews.push({...n,ticker:'總經'}));
+      }
+    }
+  }catch(e){console.warn('general news',e.message);}
+
   return allNews;
 }
 
@@ -712,9 +729,9 @@ function updateClock(){
   const h=us.getHours(),m=us.getMinutes();
   document.getElementById('usTime').textContent=
     `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`;
-  let sess='⚫ 盤後';
-  if(h>=4&&(h<9||(h===9&&m<30))) sess='🟡 盤前';
-  else if((h===9&&m>=30)||h>=10&&h<16) sess='🟢 盤中';
+  let sess='盤後';
+  if(h>=4&&(h<9||(h===9&&m<30))) sess='盤前';
+  else if((h===9&&m>=30)||h>=10&&h<16) sess='盤中';
   document.getElementById('twSession').textContent='台灣時間';
   document.getElementById('usSession').textContent=`美東 · ${sess}`;
 }
@@ -767,12 +784,13 @@ async function runAll(){
       mktStr=calcMarketStrength(spyC,soxxC);
     }
     const sc=strengthColor(mktStr.total);
+    // 寫入期貨列左側的市場強度小卡
     document.getElementById('strengthScore').textContent=mktStr.total;
+    document.getElementById('strengthScore').className='mkt-str-val';
     document.getElementById('strengthScore').style.color=sc;
     document.getElementById('strengthLabel').textContent=strengthLabel(mktStr.total);
+    document.getElementById('strengthLabel').className='mkt-str-lbl';
     document.getElementById('strengthLabel').style.color=sc;
-    document.getElementById('allocPct').textContent=mktStr.total+'%';
-    document.getElementById('allocPct').style.color=sc;
 
     // 子因子顯示
     const factors=[
@@ -799,14 +817,15 @@ async function runAll(){
     setP(30,'Claude AI 分析新聞情緒...');
     const newsWithSent=await analyzeSentiment(rawNews);
 
-    // 新聞渲染
+    // 新聞渲染：只顯示有明確極性的（>0.2 或 <-0.2）
     const newsList=document.getElementById('newsList');
     newsList.innerHTML='';
-    if(newsWithSent.length>0){
-      newsWithSent.forEach(n=>{
-        const icon=n.polarity>0.2?'📈':n.polarity<-0.2?'📉':'➡️';
-        const tagCls=n.polarity>0.2?'ntag ntag-pos':n.polarity<-0.2?'ntag ntag-neg':'ntag ntag-neu';
-        const tagTxt=n.polarity>0.2?'利多':n.polarity<-0.2?'利空':'中性';
+    const significantNews=newsWithSent.filter(n=>Math.abs(n.polarity||0)>0.2);
+    if(significantNews.length>0){
+      significantNews.forEach(n=>{
+        const icon=n.polarity>0.2?'📈':'📉';
+        const tagCls=n.polarity>0.2?'ntag ntag-pos':'ntag ntag-neg';
+        const tagTxt=n.polarity>0.2?'利多':'利空';
         newsList.innerHTML+=`
         <div class="news-item">
           <span class="news-icon">${icon}</span>
@@ -817,9 +836,17 @@ async function runAll(){
           <span class="${tagCls}">${tagTxt}</span>
         </div>`;
       });
-      document.getElementById('newsMeta').textContent=`${newsWithSent.length} 則 · Finnhub + Claude AI`;
+      document.getElementById('newsMeta').textContent=`${significantNews.length} 則有效新聞 · Finnhub + Claude AI`;
     }else{
-      newsList.innerHTML='<div class="news-item"><span class="news-icon">✅</span><div class="news-body"><div class="news-text" style="color:var(--text2)">今日暫無重大新聞</div></div></div>';
+      newsList.innerHTML=`
+      <div class="news-item">
+        <span class="news-icon">—</span>
+        <div class="news-body">
+          <div class="news-text" style="color:var(--text2)">今日無重大利多或利空消息</div>
+          <div class="news-meta">中性新聞已過濾 · 僅顯示極性 &gt;0.2 或 &lt;-0.2 的新聞</div>
+        </div>
+      </div>`;
+      document.getElementById('newsMeta').textContent='Finnhub + Claude AI';
     }
     show('newsCard');
 
