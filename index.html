@@ -610,7 +610,7 @@ async function fetchNews(tickers){
 }
 
 // ══════════════════════════════════════════════════════
-// Claude 情緒分析（直接呼叫 Claude API）
+// Claude 情緒分析（透過 Worker，使用環境變數 API Key）
 // ══════════════════════════════════════════════════════
 async function analyzeSentiment(newsArr){
   if(newsArr.length===0) return[];
@@ -635,7 +635,7 @@ ${headlines}
 - summary必須是繁體中文`;
 
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
+    const res=await fetch(`${WORKER}/sentiment`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -644,7 +644,7 @@ ${headlines}
         messages:[{role:'user',content:prompt}]
       })
     });
-    if(!res.ok) throw new Error(`Claude ${res.status}`);
+    if(!res.ok) throw new Error(`sentiment ${res.status}`);
     const d=await res.json();
     const raw=d.content.map(b=>b.text||'').join('');
     let parsed;
