@@ -43,12 +43,21 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24p
 .container{max-width:1200px;margin:0 auto;padding:20px 24px;}
 .gap{margin-bottom:16px;}
 
-/* 時鐘列 */
-.clock-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+/* 時鐘列（3欄）*/
+.clock-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;}
 .ck{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
 .ck-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
 .ck-val{font-family:var(--mono);font-size:18px;font-weight:600;}
 .ck-sub{font-size:11px;color:var(--text2);margin-top:4px;}
+
+/* 四層評分模型橫條 */
+.model-bar{border-top:1px solid var(--accent);border-bottom:1px solid var(--accent);padding:10px 20px;display:flex;align-items:center;gap:0;margin-bottom:0;}
+.model-layer{flex:1;display:flex;align-items:center;gap:10px;padding:0 16px;}
+.model-layer:first-child{padding-left:0;}
+.model-layer:last-child{padding-right:0;}
+.model-num{width:22px;height:22px;border-radius:5px;background:rgba(232,168,64,.15);color:var(--accent2);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.model-text{font-size:11px;color:var(--text3);line-height:1.4;}
+.model-divider{width:1px;height:28px;background:var(--border);flex-shrink:0;}
 
 /* 期貨列（含市場強度）*/
 .fut-row{display:grid;grid-template-columns:auto repeat(3,1fr);gap:12px;margin-bottom:16px;}
@@ -172,7 +181,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
 
 <div class="container">
 
-  <!-- 時間列 -->
+  <!-- 時間列（3欄）-->
   <div class="clock-row">
     <div class="ck">
       <div class="ck-label">台灣時間</div>
@@ -188,11 +197,6 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
       <div class="ck-label">分析股票數</div>
       <div class="ck-val neu" id="mktCount">—</div>
       <div class="ck-sub">SOXX 成分股</div>
-    </div>
-    <div class="ck">
-      <div class="ck-label">評分模型</div>
-      <div class="ck-val neu" style="font-size:13px;">四層複合</div>
-      <div class="ck-sub">技術80% + 情緒20%</div>
     </div>
   </div>
 
@@ -231,6 +235,29 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
   <!-- 錯誤 -->
   <div class="err-card hidden" id="errCard">
     ⚠️ <strong>分析失敗</strong><br><span id="errMsg"></span>
+  </div>
+
+  <!-- 四層評分模型橫條（夾在市場強度與子因子之間）-->
+  <div class="model-bar hidden" id="modelBar">
+    <div class="model-layer">
+      <div class="model-num">①</div>
+      <div class="model-text">RSI + MACD + 布林通道 + 均線</div>
+    </div>
+    <div class="model-divider"></div>
+    <div class="model-layer">
+      <div class="model-num">②</div>
+      <div class="model-text">個股 vs SOXX vs SPY 相對強弱</div>
+    </div>
+    <div class="model-divider"></div>
+    <div class="model-layer">
+      <div class="model-num">③</div>
+      <div class="model-text">ATR + ADX + OBV + 波動率</div>
+    </div>
+    <div class="model-divider"></div>
+    <div class="model-layer">
+      <div class="model-num">④</div>
+      <div class="model-text">Finnhub News + Claude AI</div>
+    </div>
   </div>
 
   <!-- 市場強度子因子 -->
@@ -697,8 +724,10 @@ function parseChart(data){
   if(closes.length<30) return null;
   const price=closes.at(-1);
   const prev=r.meta.chartPreviousClose||closes.at(-2);
+  // 今日漲跌：用 chartPreviousClose（昨收）
   const todayChg=(price-prev)/prev*100;
-  const ret30=closes.length>=20?(price/closes.at(-20)-1)*100:null;
+  // 過去30日：用 closes.at(-21) 是約 20 個交易日前（排除今日）
+  const ret30=closes.length>=21?(price/closes.at(-21)-1)*100:null;
   return{closes,volumes,highs,lows,price,prev,todayChg,ret30};
 }
 
@@ -819,6 +848,7 @@ async function runAll(){
       document.getElementById(`sb${n}Bar`).style.background=strengthColor(f.score/f.max*100);
     });
     show('strengthCard');
+    show('modelBar');
 
     // ── Step4: Finnhub 新聞 ──
     setP(22,'抓取今日半導體新聞...');
@@ -950,11 +980,9 @@ async function runAll(){
         </td>
         <td class="r">
           <div class="pv">$${s.price.toFixed(2)}</div>
-          <div class="pc ${tdCls}">${fmtChg(s.todayChg)}</div>
         </td>
         <td class="r">
-          <div class="r30 ${r30Cls}">${s.ret30!=null?fmtChg(s.ret30):'N/A'}</div>
-          <div class="r30-lbl">過去30日</div>
+          <div class="pv ${r30Cls}" style="font-size:13px;">${s.ret30!=null?fmtChg(s.ret30):'—'}</div>
         </td>
         <td class="r"><div class="buy-r">$${s.buyLow}–$${s.buyHigh}</div></td>
         <td class="r">
