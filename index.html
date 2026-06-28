@@ -29,21 +29,46 @@
 }
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.5;}
 
-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
-.logo{display:flex;align-items:center;gap:10px;}
-.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:600;color:#fff;}
-.logo-text{font-size:15px;font-weight:600;}
-.logo-sub{font-size:11px;color:var(--text3);margin-left:4px;}
-.header-right{display:flex;align-items:center;gap:12px;}
-.upd-time{font-family:var(--mono);font-size:11px;color:var(--text3);}
-.run-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;transition:opacity .15s;font-family:var(--sans);}
+/* ── Header 兩層結構 ── */
+header{
+  background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:100;
+}
+.header-top{
+  padding:0 20px;
+  height:52px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.header-sector{
+  background:var(--bg3);
+  border-top:1px solid var(--border);
+  padding:6px 16px;
+  display:flex;align-items:center;gap:6px;
+  flex-wrap:wrap;   /* 超過螢幕寬度自動換行 */
+}
+.logo{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:600;color:#fff;flex-shrink:0;}
+.logo-text{font-size:15px;font-weight:600;white-space:nowrap;}
+.logo-sub{font-size:10px;color:var(--text3);margin-left:4px;white-space:nowrap;}
+.header-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.upd-time{font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap;}
+.run-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;transition:opacity .15s;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
 .run-btn:hover{opacity:.85;}
 .run-btn:disabled{opacity:.4;cursor:not-allowed;}
-/* 模式切換 */
-.mode-switch{display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px;gap:3px;}
-.mode-btn{background:transparent;color:var(--text2);border:none;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:500;cursor:pointer;transition:all .2s;font-family:var(--sans);white-space:nowrap;}
-.mode-btn:hover{color:var(--text);}
-.mode-btn.active{background:var(--accent);color:#fff;font-weight:600;}
+/* 類股按鈕 */
+.mode-btn{background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:500;cursor:pointer;transition:all .2s;font-family:var(--sans);white-space:nowrap;}
+.mode-btn:hover{color:var(--text);border-color:var(--accent);}
+.mode-btn.active{background:var(--accent);color:#fff;font-weight:600;border-color:var(--accent);}
+/* 手機直式：logo-sub 隱藏，縮小字 */
+@media(max-width:600px){
+  .logo-sub{display:none;}
+  .logo-text{font-size:13px;}
+  .upd-time{display:none;}
+  .run-btn{padding:6px 10px;font-size:12px;}
+  .mode-btn{font-size:10px;padding:4px 8px;}
+  .header-sector{padding:5px 10px;gap:4px;}
+}
 
 .container{max-width:1200px;margin:0 auto;padding:20px 24px;}
 .gap{margin-bottom:16px;}
@@ -170,26 +195,29 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
 <body>
 
 <header>
-  <div class="logo">
-    <div class="logo-mark">SOX</div>
-    <span class="logo-text">半導體選股儀表板</span>
-    <span class="logo-sub">盤前參考版 v3.0</span>
-  </div>
-  <div class="header-right">
-    <span class="upd-time">更新：<span id="updTime">—</span></span>
-    <!-- 類股切換 -->
-    <div class="mode-switch" id="modeSwitch">
-      <button class="mode-btn active" id="sectorBtnSOXX" onclick="switchSector('soxx')">💾 半導體</button>
-      <button class="mode-btn" id="sectorBtnXLE" onclick="switchSector('xle')">⛽ 能源</button>
-      <button class="mode-btn" id="sectorBtnXLP" onclick="switchSector('xlp')">🛒 消費必需品</button>
-      <button class="mode-btn" id="sectorBtnXLV" onclick="switchSector('xlv')">🏥 醫療保健</button>
-      <button class="mode-btn" id="sectorBtnXLU" onclick="switchSector('xlu')">⚡ 公用事業</button>
-      <button class="mode-btn" id="sectorBtnTECH" onclick="switchSector('tech')">🚀 AI & 太空</button>
+  <!-- 第一層：Logo + 更新時間 + 開始分析 -->
+  <div class="header-top">
+    <div class="logo">
+      <div class="logo-mark" id="logoMark">SOX</div>
+      <span class="logo-text" id="logoText">半導體選股儀表板</span>
+      <span class="logo-sub">盤前參考版 v3.1</span>
     </div>
-    <button class="run-btn" id="runBtn" onclick="runAll()">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>
-      開始分析
-    </button>
+    <div class="header-actions">
+      <span class="upd-time">更新：<span id="updTime">—</span></span>
+      <button class="run-btn" id="runBtn" onclick="runAll()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>
+        開始分析
+      </button>
+    </div>
+  </div>
+  <!-- 第二層：類股切換（可換行）-->
+  <div class="header-sector" id="modeSwitch">
+    <button class="mode-btn active" id="sectorBtnSOXX" onclick="switchSector('soxx')">💾 半導體</button>
+    <button class="mode-btn" id="sectorBtnXLE"  onclick="switchSector('xle')">⛽ 能源</button>
+    <button class="mode-btn" id="sectorBtnXLP"  onclick="switchSector('xlp')">🛒 消費必需品</button>
+    <button class="mode-btn" id="sectorBtnXLV"  onclick="switchSector('xlv')">🏥 醫療保健</button>
+    <button class="mode-btn" id="sectorBtnXLU"  onclick="switchSector('xlu')">⚡ 公用事業</button>
+    <button class="mode-btn" id="sectorBtnTECH" onclick="switchSector('tech')">🚀 AI & 太空</button>
   </div>
 </header>
 
@@ -793,8 +821,8 @@ function switchSector(sector) {
 function applySectorUI(sector) {
   const cfg = SECTOR_CONFIG[sector];
   if(!cfg) return;
-  document.querySelector('.logo-mark').textContent  = cfg.logoMark;
-  document.querySelector('.logo-text').textContent  = cfg.displayName;
+  document.getElementById('logoMark').textContent  = cfg.logoMark;
+  document.getElementById('logoText').textContent  = cfg.displayName;
   document.getElementById('idx1Sym').textContent    = cfg.idx1Sym;
   document.getElementById('idx1Name').textContent   = cfg.idx1Name;
   document.getElementById('idx2Sym').textContent    = cfg.idx2Sym;
