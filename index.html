@@ -218,6 +218,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <button class="mode-btn" id="sectorBtnXLV"  onclick="switchSector('xlv')">🏥 醫療保健</button>
     <button class="mode-btn" id="sectorBtnXLU"  onclick="switchSector('xlu')">⚡ 公用事業</button>
     <button class="mode-btn" id="sectorBtnTECH" onclick="switchSector('tech')">🚀 AI & 太空</button>
+    <button class="mode-btn" id="sectorBtnITA"  onclick="switchSector('ita')">🛡️ 航太國防</button>
     <button class="mode-btn" id="sectorBtnGDX"  onclick="switchSector('gdx')">🥇 黃金</button>
     <button class="mode-btn" id="sectorBtnREMX" onclick="switchSector('remx')">⚗️ 稀土</button>
   </div>
@@ -672,6 +673,61 @@ const XLU_STOCKS = [
 ];
 
 // ══════════════════════════════════════════════════════
+// 航太國防 ITA ETF 成分股（49支，iShares 2026/06/26）
+// ══════════════════════════════════════════════════════
+const ITA_STOCKS = [
+  {t:'GE',    n:'GE Aerospace'},
+  {t:'RTX',   n:'RTX Corp'},
+  {t:'BA',    n:'Boeing'},
+  {t:'TDG',   n:'TransDigm Group'},
+  {t:'HWM',   n:'Howmet Aerospace'},
+  {t:'GD',    n:'General Dynamics'},
+  {t:'LMT',   n:'Lockheed Martin'},
+  {t:'NOC',   n:'Northrop Grumman'},
+  {t:'LHX',   n:'L3Harris Technologies'},
+  {t:'RKLB',  n:'Rocket Lab'},
+  {t:'AXON',  n:'Axon Enterprise'},
+  {t:'CRS',   n:'Carpenter Technology'},
+  {t:'CW',    n:'Curtiss-Wright'},
+  {t:'ATI',   n:'ATI Inc'},
+  {t:'FTAI',  n:'FTAI Aviation'},
+  {t:'WWD',   n:'Woodward'},
+  {t:'HEIA',  n:'HEICO Class A'},
+  {t:'BWXT',  n:'BWX Technologies'},
+  {t:'TXT',   n:'Textron'},
+  {t:'HEI',   n:'HEICO'},
+  {t:'MOGA',  n:'Moog Class A'},
+  {t:'HII',   n:'Huntington Ingalls'},
+  {t:'KTOS',  n:'Kratos Defense'},
+  {t:'HXL',   n:'Hexcel'},
+  {t:'VSEC',  n:'VSE Corp'},
+  {t:'MRCY',  n:'Mercury Systems'},
+  {t:'AIR',   n:'AAR Corp'},
+  {t:'SARO',  n:'StandardAero'},
+  {t:'AVAV',  n:'AeroVironment'},
+  {t:'KRMN',  n:'Karman Holdings'},
+  {t:'DRS',   n:'Leonardo DRS'},
+  {t:'ACHR',  n:'Archer Aviation'},
+  {t:'LOAR',  n:'Loar Holdings'},
+  {t:'ATRO',  n:'Astronics'},
+  {t:'LUNR',  n:'Intuitive Machines'},
+  {t:'DCO',   n:'Ducommun'},
+  {t:'VVX',   n:'V2X'},
+  {t:'RCAT',  n:'Red Cat Holdings'},
+  {t:'RDW',   n:'Redwire'},
+  {t:'CDRE',  n:'Cadre Holdings'},
+  {t:'FLY',   n:'Firefly Aerospace'},
+  {t:'SWBI',  n:'Smith & Wesson Brands'},
+  {t:'NPK',   n:'National Presto Industries'},
+  {t:'RGR',   n:'Sturm Ruger'},
+  {t:'ATROB', n:'Astronics Class B'},
+  {t:'BETA',  n:'Beta Technologies'},
+  {t:'YSS',   n:'York Space Systems'},
+  {t:'VOYG',  n:'Voyager Space'},
+  {t:'SPCE',  n:'Virgin Galactic'},
+];
+
+// ══════════════════════════════════════════════════════
 // 黃金/貴金屬 美股掛牌（12支，基準 GDX）
 // ══════════════════════════════════════════════════════
 const GDX_STOCKS = [
@@ -859,6 +915,23 @@ const SECTOR_CONFIG = {
     showSentiment: false,
     tableTitle:'📊 AI & 太空 Top 10 選股',
     footerText:'數據：Yahoo Finance · 科技創新自選池 38支 2026 · 技術面100%',
+  },
+  ita: {
+    pool: ITA_STOCKS,
+    benchmark: 'ITA',
+    benchmarkSpy: 'SPY',
+    etfLabel: 'ITA',
+    poolLabel: 'ITA 航太國防',
+    displayName: '航太國防選股儀表板',
+    logoMark: 'DEF',
+    idx1Sym:'GE',   idx1Name:'GE Aerospace',
+    idx2Sym:'RTX',  idx2Name:'RTX Corp',
+    idx3Sym:'LMT',  idx3Name:'Lockheed Martin',
+    sb1Label:'SPY RSI', sb2Label:'ITA 相對強弱',
+    layer2Text:'個股 vs ITA vs SPY 相對強弱',
+    showSentiment: false,
+    tableTitle:'📊 航太國防 Top 10 選股',
+    footerText:'數據：Yahoo Finance · iShares ITA 49支 2026/06/26 · 技術面100%',
   },
   gdx: {
     pool: GDX_STOCKS,
