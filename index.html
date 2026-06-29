@@ -218,6 +218,8 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <button class="mode-btn" id="sectorBtnXLV"  onclick="switchSector('xlv')">🏥 醫療保健</button>
     <button class="mode-btn" id="sectorBtnXLU"  onclick="switchSector('xlu')">⚡ 公用事業</button>
     <button class="mode-btn" id="sectorBtnTECH" onclick="switchSector('tech')">🚀 AI & 太空</button>
+    <button class="mode-btn" id="sectorBtnGDX"  onclick="switchSector('gdx')">🥇 黃金</button>
+    <button class="mode-btn" id="sectorBtnREMX" onclick="switchSector('remx')">⚗️ 稀土</button>
   </div>
 </header>
 
@@ -499,50 +501,49 @@ const TW0050 = [
 // XLE 能源 ETF 成分股（24支，2026/06）
 // ══════════════════════════════════════════════════════
 const XLE_STOCKS = [
+  // 官方來源：State Street XLE 2026/06/26（21支）
   {t:'XOM',  n:'Exxon Mobil'},
   {t:'CVX',  n:'Chevron'},
   {t:'COP',  n:'ConocoPhillips'},
   {t:'WMB',  n:'Williams Companies'},
   {t:'VLO',  n:'Valero Energy'},
-  {t:'EOG',  n:'EOG Resources'},
-  {t:'SLB',  n:'SLB N.V.'},
   {t:'MPC',  n:'Marathon Petroleum'},
+  {t:'EOG',  n:'EOG Resources'},
+  {t:'SLB',  n:'SLB'},
   {t:'PSX',  n:'Phillips 66'},
-  {t:'OXY',  n:'Occidental Petroleum'},
-  {t:'HAL',  n:'Halliburton'},
-  {t:'HES',  n:'Hess Corporation'},
-  {t:'DVN',  n:'Devon Energy'},
-  {t:'BKR',  n:'Baker Hughes'},
-  {t:'FANG', n:'Diamondback Energy'},
+  {t:'KMI',  n:'Kinder Morgan'},
   {t:'TRGP', n:'Targa Resources'},
   {t:'OKE',  n:'ONEOK'},
-  {t:'KMI',  n:'Kinder Morgan'},
-  {t:'EQT',  n:'EQT Corporation'},
-  {t:'APA',  n:'APA Corporation'},
-  {t:'MRO',  n:'Marathon Oil'},
-  {t:'CTRA', n:'Coterra Energy'},
-  {t:'PR',   n:'Permian Resources'},
-  {t:'NOV',  n:'NOV Inc.'},
+  {t:'BKR',  n:'Baker Hughes'},
+  {t:'DVN',  n:'Devon Energy'},
+  {t:'OXY',  n:'Occidental Petroleum'},
+  {t:'FANG', n:'Diamondback Energy'},
+  {t:'EQT',  n:'EQT Corp'},
+  {t:'HAL',  n:'Halliburton'},
+  {t:'TPL',  n:'Texas Pacific Land'},
+  {t:'EXE',  n:'Expand Energy'},
+  {t:'APA',  n:'APA Corp'},
 ];
 
 // ══════════════════════════════════════════════════════
 // XLP 消費必需品 ETF 成分股（25支，2026/06）
 // ══════════════════════════════════════════════════════
 const XLP_STOCKS = [
+  // 官方來源：State Street XLP 2026/06/26（35支）
   {t:'WMT',  n:'Walmart'},
   {t:'COST', n:'Costco Wholesale'},
   {t:'PG',   n:'Procter & Gamble'},
   {t:'KO',   n:'Coca-Cola'},
-  {t:'PM',   n:'Philip Morris'},
+  {t:'PM',   n:'Philip Morris International'},
   {t:'CL',   n:'Colgate-Palmolive'},
-  {t:'PEP',  n:'PepsiCo'},
   {t:'MO',   n:'Altria Group'},
-  {t:'MDLZ', n:'Mondelez International'},
+  {t:'PEP',  n:'PepsiCo'},
   {t:'MNST', n:'Monster Beverage'},
+  {t:'MDLZ', n:'Mondelez International'},
   {t:'TGT',  n:'Target'},
   {t:'KDP',  n:'Keurig Dr Pepper'},
   {t:'SYY',  n:'Sysco'},
-  {t:'ADM',  n:'Archer-Daniels-Midland'},
+  {t:'ADM',  n:'Archer Daniels Midland'},
   {t:'KVUE', n:'Kenvue'},
   {t:'KMB',  n:'Kimberly-Clark'},
   {t:'KR',   n:'Kroger'},
@@ -551,20 +552,31 @@ const XLP_STOCKS = [
   {t:'DG',   n:'Dollar General'},
   {t:'CHD',  n:'Church & Dwight'},
   {t:'DLTR', n:'Dollar Tree'},
-  {t:'EL',   n:'Estée Lauder'},
   {t:'STZ',  n:'Constellation Brands'},
   {t:'KHC',  n:'Kraft Heinz'},
+  {t:'EL',   n:'Estee Lauder'},
+  {t:'GIS',  n:'General Mills'},
+  {t:'TSN',  n:'Tyson Foods'},
+  {t:'BG',   n:'Bunge Global'},
+  {t:'MKC',  n:'McCormick & Co'},
+  {t:'SJM',  n:'JM Smucker'},
+  {t:'CLX',  n:'Clorox'},
+  {t:'HRL',  n:'Hormel Foods'},
+  {t:'CAG',  n:'Conagra Brands'},
+  {t:'TAP',  n:'Molson Coors Beverage'},
+  {t:'BF-B',  n:'Brown-Forman Class B'},
 ];
 
 // ══════════════════════════════════════════════════════
 // XLV 醫療保健 ETF 成分股（前25支，2026/06）
 // ══════════════════════════════════════════════════════
 const XLV_STOCKS = [
+  // 官方來源：State Street XLV 2026/06/26（59支，去除期貨）
   {t:'LLY',  n:'Eli Lilly'},
   {t:'JNJ',  n:'Johnson & Johnson'},
   {t:'ABBV', n:'AbbVie'},
   {t:'UNH',  n:'UnitedHealth Group'},
-  {t:'MRK',  n:'Merck & Co.'},
+  {t:'MRK',  n:'Merck & Co'},
   {t:'AMGN', n:'Amgen'},
   {t:'TMO',  n:'Thermo Fisher Scientific'},
   {t:'ABT',  n:'Abbott Laboratories'},
@@ -583,39 +595,114 @@ const XLV_STOCKS = [
   {t:'BSX',  n:'Boston Scientific'},
   {t:'REGN', n:'Regeneron'},
   {t:'HCA',  n:'HCA Healthcare'},
-  {t:'COR',  n:'Cencora'},
   {t:'CAH',  n:'Cardinal Health'},
+  {t:'COR',  n:'Cencora'},
+  {t:'EW',   n:'Edwards Lifesciences'},
+  {t:'HUM',  n:'Humana'},
+  {t:'IDXX', n:'IDEXX Laboratories'},
+  {t:'BDX',  n:'Becton Dickinson'},
+  {t:'A',    n:'Agilent Technologies'},
+  {t:'WAT',  n:'Waters'},
+  {t:'IQV',  n:'IQVIA Holdings'},
+  {t:'ZTS',  n:'Zoetis'},
+  {t:'BIIB', n:'Biogen'},
+  {t:'CNC',  n:'Centene'},
+  {t:'GEHC', n:'GE Healthcare'},
+  {t:'RMD',  n:'ResMed'},
+  {t:'DXCM', n:'DexCom'},
+  {t:'VEEV', n:'Veeva Systems'},
+  {t:'MTD',  n:'Mettler-Toledo'},
+  {t:'WST',  n:'West Pharmaceutical'},
+  {t:'MRNA', n:'Moderna'},
+  {t:'DGX',  n:'Quest Diagnostics'},
+  {t:'LH',   n:'Labcorp Holdings'},
+  {t:'STE',  n:'Steris'},
+  {t:'INCY', n:'Incyte'},
+  {t:'VTRS', n:'Viatris'},
+  {t:'ZBH',  n:'Zimmer Biomet'},
+  {t:'COO',  n:'Cooper Companies'},
+  {t:'RVTY', n:'Revvity'},
+  {t:'ALGN', n:'Align Technology'},
+  {t:'SOLV', n:'Solventum'},
+  {t:'BAX',  n:'Baxter International'},
+  {t:'TECH', n:'Bio-Techne'},
+  {t:'PODD', n:'Insulet'},
+  {t:'CRL',  n:'Charles River Labs'},
+  {t:'HSIC', n:'Henry Schein'},
+  {t:'UHS',  n:'Universal Health Services'},
+  {t:'DVA',  n:'DaVita'},
 ];
 
 // ══════════════════════════════════════════════════════
 // XLU 公用事業 ETF 成分股（25支，2026/06）
 // ══════════════════════════════════════════════════════
 const XLU_STOCKS = [
+  // 官方來源：State Street XLU 2026/06/26（31支）
   {t:'NEE',  n:'NextEra Energy'},
   {t:'SO',   n:'Southern Company'},
   {t:'DUK',  n:'Duke Energy'},
   {t:'CEG',  n:'Constellation Energy'},
   {t:'AEP',  n:'American Electric Power'},
-  {t:'D',    n:'Dominion Energy'},
   {t:'SRE',  n:'Sempra'},
+  {t:'D',    n:'Dominion Energy'},
   {t:'ETR',  n:'Entergy'},
-  {t:'VST',  n:'Vistra Corp.'},
+  {t:'VST',  n:'Vistra'},
   {t:'XEL',  n:'Xcel Energy'},
   {t:'EXC',  n:'Exelon'},
   {t:'PEG',  n:'Public Service Enterprise'},
   {t:'ED',   n:'Consolidated Edison'},
-  {t:'PCG',  n:'PG&E'},
   {t:'WEC',  n:'WEC Energy Group'},
-  {t:'DTE',  n:'DTE Energy'},
+  {t:'PCG',  n:'PG&E'},
   {t:'AEE',  n:'Ameren'},
+  {t:'DTE',  n:'DTE Energy'},
   {t:'NRG',  n:'NRG Energy'},
-  {t:'ATO',  n:'Atmos Energy'},
   {t:'CNP',  n:'CenterPoint Energy'},
+  {t:'ATO',  n:'Atmos Energy'},
   {t:'EIX',  n:'Edison International'},
-  {t:'PPL',  n:'PPL Corporation'},
+  {t:'PPL',  n:'PPL Corp'},
   {t:'ES',   n:'Eversource Energy'},
   {t:'AWK',  n:'American Water Works'},
   {t:'FE',   n:'FirstEnergy'},
+  {t:'CMS',  n:'CMS Energy'},
+  {t:'NI',   n:'NiSource'},
+  {t:'EVRG', n:'Evergy'},
+  {t:'LNT',  n:'Alliant Energy'},
+  {t:'PNW',  n:'Pinnacle West Capital'},
+  {t:'AES',  n:'AES Corp'},
+];
+
+// ══════════════════════════════════════════════════════
+// 黃金/貴金屬 美股掛牌（12支，基準 GDX）
+// ══════════════════════════════════════════════════════
+const GDX_STOCKS = [
+  {t:'NEM',  n:'Newmont'},
+  {t:'AEM',  n:'Agnico Eagle Mines'},
+  {t:'GOLD', n:'Barrick Mining'},
+  {t:'WPM',  n:'Wheaton Precious Metals'},
+  {t:'FNV',  n:'Franco-Nevada'},
+  {t:'AGI',  n:'Alamos Gold'},
+  {t:'KGC',  n:'Kinross Gold'},
+  {t:'BTG',  n:'B2Gold'},
+  {t:'EGO',  n:'Eldorado Gold'},
+  {t:'HL',   n:'Hecla Mining'},
+  {t:'RGLD', n:'Royal Gold'},
+  {t:'OR',   n:'Osisko Gold Royalties'},
+];
+
+// ══════════════════════════════════════════════════════
+// 稀土/關鍵礦產 美股掛牌（10支，基準 REMX）
+// ══════════════════════════════════════════════════════
+const REMX_STOCKS = [
+  {t:'MP',   n:'MP Materials'},
+  {t:'ALB',  n:'Albemarle'},
+  {t:'LTHM', n:'Lithium Americas'},
+  {t:'PMET', n:'Patriot Battery Metals'},
+  {t:'SQM',  n:'SQM'},
+  {t:'UUUU', n:'Energy Fuels'},
+  {t:'NXE',  n:'NexGen Energy'},
+  {t:'FCX',  n:'Freeport-McMoRan'},
+  {t:'AA',   n:'Alcoa'},
+  {t:'NVX',  n:'Novonix'},
 ];
 
 // ══════════════════════════════════════════════════════
@@ -772,6 +859,40 @@ const SECTOR_CONFIG = {
     showSentiment: false,
     tableTitle:'📊 AI & 太空 Top 10 選股',
     footerText:'數據：Yahoo Finance · 科技創新自選池 38支 2026 · 技術面100%',
+  },
+  gdx: {
+    pool: GDX_STOCKS,
+    benchmark: 'GDX',
+    benchmarkSpy: 'SPY',
+    etfLabel: 'GDX',
+    poolLabel: 'GDX 黃金/貴金屬',
+    displayName: '黃金貴金屬選股儀表板',
+    logoMark: 'AU',
+    idx1Sym:'GDX',  idx1Name:'VanEck Gold Miners ETF',
+    idx2Sym:'NEM',  idx2Name:'Newmont',
+    idx3Sym:'GOLD', idx3Name:'Barrick Mining',
+    sb1Label:'SPY RSI', sb2Label:'GDX 相對強弱',
+    layer2Text:'個股 vs GDX vs SPY 相對強弱',
+    showSentiment: false,
+    tableTitle:'📊 黃金/貴金屬 Top 10 選股',
+    footerText:'數據：Yahoo Finance · 黃金貴金屬美股精選 12支 2026 · 技術面100%',
+  },
+  remx: {
+    pool: REMX_STOCKS,
+    benchmark: 'REMX',
+    benchmarkSpy: 'SPY',
+    etfLabel: 'REMX',
+    poolLabel: 'REMX 稀土/關鍵礦產',
+    displayName: '稀土關鍵礦產選股儀表板',
+    logoMark: 'RE',
+    idx1Sym:'REMX', idx1Name:'VanEck Rare Earth ETF',
+    idx2Sym:'MP',   idx2Name:'MP Materials',
+    idx3Sym:'FCX',  idx3Name:'Freeport-McMoRan',
+    sb1Label:'SPY RSI', sb2Label:'REMX 相對強弱',
+    layer2Text:'個股 vs REMX vs SPY 相對強弱',
+    showSentiment: false,
+    tableTitle:'📊 稀土/關鍵礦產 Top 10 選股',
+    footerText:'數據：Yahoo Finance · 稀土關鍵礦產美股精選 10支 2026 · 技術面100%',
   },
 };
 
