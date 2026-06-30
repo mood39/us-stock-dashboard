@@ -1259,6 +1259,17 @@ function scoreStock(closes,volumes,highs,lows,soxxC,spyC){
     sig,sigLbl,target,upside,buyLow,buyHigh};
 }
 
+async function fetchWithRetry429(url,options,maxRetries=2){
+  for(let i=0;i<=maxRetries;i++){
+    const res=await fetch(url,options);
+    if(res.status===429&&i<maxRetries){
+      await new Promise(r=>setTimeout(r,400+Math.random()*600));
+      continue;
+    }
+    return res;
+  }
+}
+
 // ══════════════════════════════════════════════════════
 // Finnhub 新聞（透過 Worker）
 // 同時抓：個股新聞 + 總體市場新聞
@@ -1269,7 +1280,7 @@ async function fetchNews(tickers){
   // 1. 個股新聞（前8支）
   for(const t of tickers.slice(0,8)){
     try{
-      const res=await fetch(`${WORKER}/news?t=${t}`,{signal:AbortSignal.timeout(8000)});
+      const res=await fetchWithRetry429(`${WORKER}/news?t=${t}`,{signal:AbortSignal.timeout(8000)});
       if(!res.ok) continue;
       const data=await res.json();
       if(data.news&&data.news.length>0){
@@ -1281,7 +1292,7 @@ async function fetchNews(tickers){
 
   // 2. 總體市場新聞（聯準會、貿易政策、總經）
   try{
-    const res=await fetch(`${WORKER}/news?t=GENERAL`,{signal:AbortSignal.timeout(8000)});
+    const res=await fetchWithRetry429(`${WORKER}/news?t=GENERAL`,{signal:AbortSignal.timeout(8000)});
     if(res.ok){
       const data=await res.json();
       if(data.news&&data.news.length>0){
@@ -1319,7 +1330,7 @@ ${headlines}
 - summary必須是繁體中文`;
 
   try{
-    const res=await fetch(`${WORKER}/sentiment`,{
+    const res=await fetchWithRetry429(`${WORKER}/sentiment`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1364,8 +1375,15 @@ function sentimentScore(news){
 // ══════════════════════════════════════════════════════
 // API 呼叫
 // ══════════════════════════════════════════════════════
-async function fetchQuote(ticker){
+async function fetchQuote(ticker,retryCount=0){
+  const MAX_RETRIES=3;
   const res=await fetch(`${WORKER}/?t=${encodeURIComponent(ticker)}`,{signal:AbortSignal.timeout(12000)});
+  // 429 = 系統速率限制觸發，背景自動重試，使用者不會看到錯誤，只是稍微多等一下
+  if(res.status===429&&retryCount<MAX_RETRIES){
+    const waitMs=500+Math.random()*1000; // 隨機 0.5-1.5 秒，避免多個請求同時重試又撞在一起
+    await new Promise(r=>setTimeout(r,waitMs));
+    return fetchQuote(ticker,retryCount+1);
+  }
   if(!res.ok) throw new Error(`Worker ${res.status}`);
   return res.json();
 }
