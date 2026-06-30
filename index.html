@@ -357,7 +357,8 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
         <tr>
           <th style="width:36px">#</th>
           <th>代號 / 名稱</th>
-          <th class="r">現價 / 今日</th>
+          <th class="r">現價</th>
+          <th class="r">今日漲跌</th>
           <th class="r">過去30日</th>
           <th class="r">買入區間</th>
           <th class="r">目標價 / 空間</th>
@@ -1373,15 +1374,41 @@ function parseChart(data){
   if(!r) return null;
   const q=r.indicators?.quote?.[0];
   if(!q) return null;
-  const closes=(q.close||[]).filter(x=>x!=null);
-  const volumes=(q.volume||[]).filter(x=>x!=null);
-  const highs=(q.high||[]).filter(x=>x!=null);
-  const lows=(q.low||[]).filter(x=>x!=null);
-  if(closes.length<20) return null; // 台股資料有時不足30筆，放寬至20
-  const price=closes.at(-1);
-  const prev=r.meta.chartPreviousClose||closes.at(-2);
-  // 今日漲跌：用 chartPreviousClose（昨收）
-  const todayChg=(price-prev)/prev*100;
+  const ts=r.timestamp||[];
+  const rawCloses=q.close||[];
+  // 過濾時保留 timestamp 對應關係，才能正確判斷「今天」是哪一筆
+  const idx=[];
+  for(let i=0;i<rawCloses.length;i++) if(rawCloses[i]!=null) idx.push(i);
+  if(idx.length<20) return null; // 台股資料有時不足30筆，放寬至20
+  const closes=idx.map(i=>rawCloses[i]);
+  const volumes=idx.map(i=>(q.volume||[])[i]).filter(x=>x!=null);
+  const highs=idx.map(i=>(q.high||[])[i]).filter(x=>x!=null);
+  const lows=idx.map(i=>(q.low||[])[i]).filter(x=>x!=null);
+
+  // 判斷日線最後一筆是否為「今天」：比對日期字串（用 UTC 日期避免時區誤差累積）
+  const lastTs=ts[idx.at(-1)];
+  const lastDateStr=lastTs?new Date(lastTs*1000).toISOString().slice(0,10):null;
+  const todayStr=new Date().toISOString().slice(0,10);
+  const lastIsToday=lastDateStr===todayStr;
+
+  // 現價與今日漲跌完全只用日線時間序列計算，不採用不穩定的 meta.regularMarketPrice 快照欄位
+  let price,prev,todayChg;
+  if(lastIsToday&&closes.length>=2){
+    // 日線最後一筆已是今天（盤中或已收盤）：現價=今天，昨收=前一筆
+    price=closes.at(-1);
+    prev=closes.at(-2);
+    todayChg=prev?(price-prev)/prev*100:0;
+  } else {
+    // 日線最後一筆還是昨天（例如盤前尚未產生今日K棒）：用最新即時報價對比昨收，
+    // 但即時報價仍做合理性檢查，避免單一雜訊快照污染結果
+    const lastClose=closes.at(-1);
+    let liveMP=r.meta.regularMarketPrice;
+    const sane=liveMP!=null&&lastClose>0&&Math.abs(liveMP-lastClose)/lastClose<=0.30;
+    price=sane?liveMP:lastClose;
+    prev=lastClose;
+    todayChg=prev?(price-prev)/prev*100:0;
+  }
+
   // 過去30日：用 closes.at(-21) 是約 20 個交易日前（排除今日）
   const ret30=closes.length>=21?(price/closes.at(-21)-1)*100:null;
   return{closes,volumes,highs,lows,price,prev,todayChg,ret30};
@@ -1652,6 +1679,9 @@ async function runAll(){
         </td>
         <td class="r">
           <div class="pv">${priceStr}</div>
+        </td>
+        <td class="r">
+          <div class="pv ${tdCls}" style="font-size:13px;">${fmtChg(s.todayChg)}</div>
         </td>
         <td class="r">
           <div class="pv ${r30Cls}" style="font-size:13px;">${s.ret30!=null?fmtChg(s.ret30):'—'}</div>
