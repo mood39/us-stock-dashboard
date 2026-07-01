@@ -1257,17 +1257,6 @@ function scoreStock(closes,volumes,highs,lows,soxxC,spyC){
     sig,sigLbl,target,upside,buyLow,buyHigh};
 }
 
-async function fetchWithRetry429(url,options,maxRetries=2){
-  for(let i=0;i<=maxRetries;i++){
-    const res=await fetch(url,options);
-    if(res.status===429&&i<maxRetries){
-      await new Promise(r=>setTimeout(r,400+Math.random()*600));
-      continue;
-    }
-    return res;
-  }
-}
-
 // ══════════════════════════════════════════════════════
 // Finnhub 新聞（透過 Worker）
 // 同時抓：個股新聞 + 總體市場新聞
@@ -1278,7 +1267,7 @@ async function fetchNews(tickers){
   // 1. 個股新聞（前8支）
   for(const t of tickers.slice(0,8)){
     try{
-      const res=await fetchWithRetry429(`${WORKER}/news?t=${t}`,{signal:AbortSignal.timeout(8000)});
+      const res=await fetch(`${WORKER}/news?t=${t}`,{signal:AbortSignal.timeout(8000)});
       if(!res.ok) continue;
       const data=await res.json();
       if(data.news&&data.news.length>0){
@@ -1290,7 +1279,7 @@ async function fetchNews(tickers){
 
   // 2. 總體市場新聞（聯準會、貿易政策、總經）
   try{
-    const res=await fetchWithRetry429(`${WORKER}/news?t=GENERAL`,{signal:AbortSignal.timeout(8000)});
+    const res=await fetch(`${WORKER}/news?t=GENERAL`,{signal:AbortSignal.timeout(8000)});
     if(res.ok){
       const data=await res.json();
       if(data.news&&data.news.length>0){
@@ -1328,7 +1317,7 @@ ${headlines}
 - summary必須是繁體中文`;
 
   try{
-    const res=await fetchWithRetry429(`${WORKER}/sentiment`,{
+    const res=await fetch(`${WORKER}/sentiment`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1373,15 +1362,8 @@ function sentimentScore(news){
 // ══════════════════════════════════════════════════════
 // API 呼叫
 // ══════════════════════════════════════════════════════
-async function fetchQuote(ticker,retryCount=0){
-  const MAX_RETRIES=3;
+async function fetchQuote(ticker){
   const res=await fetch(`${WORKER}/?t=${encodeURIComponent(ticker)}`,{signal:AbortSignal.timeout(12000)});
-  // 429 = 系統速率限制觸發，背景自動重試，使用者不會看到錯誤，只是稍微多等一下
-  if(res.status===429&&retryCount<MAX_RETRIES){
-    const waitMs=500+Math.random()*1000; // 隨機 0.5-1.5 秒，避免多個請求同時重試又撞在一起
-    await new Promise(r=>setTimeout(r,waitMs));
-    return fetchQuote(ticker,retryCount+1);
-  }
   if(!res.ok) throw new Error(`Worker ${res.status}`);
   return res.json();
 }
@@ -1746,8 +1728,25 @@ async function runAll(){
     show('errCard');
     document.getElementById('errMsg').textContent=err.message;
   }
-  btn.disabled=false;
   isRunning=false;
+  // 前端冷卻：分析完成後 30 秒內按鈕鎖定，防止頻繁重複分析消耗資源
+  startCooldown(btn,30);
+}
+
+function startCooldown(btn,seconds){
+  let remaining=seconds;
+  btn.disabled=true;
+  const tick=()=>{
+    btn.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a10 10 0 110 20A10 10 0 0112 2z" opacity=".2"/></svg> ${remaining}秒後可再分析`;
+    remaining--;
+    if(remaining<0){
+      btn.disabled=false;
+      btn.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg> 重新分析`;
+      return;
+    }
+    setTimeout(tick,1000);
+  };
+  tick();
 }
 
 // 頁面載入後僅套用初始 UI，不自動計算
