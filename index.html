@@ -219,7 +219,6 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <button class="mode-btn" id="sectorBtnXLU"  onclick="switchSector('xlu')">⚡ 公用事業</button>
     <button class="mode-btn" id="sectorBtnTECH" onclick="switchSector('tech')">🚀 AI & 太空</button>
     <button class="mode-btn" id="sectorBtnITA"  onclick="switchSector('ita')">🛡️ 航太國防</button>
-    <button class="mode-btn" id="sectorBtnGDX"  onclick="switchSector('gdx')">🥇 黃金</button>
     <button class="mode-btn" id="sectorBtnREMX" onclick="switchSector('remx')">⚗️ 稀土</button>
   </div>
 </header>
@@ -364,6 +363,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
           <th class="r">目標價 / 空間</th>
           <th class="c">指標</th>
           <th>評分</th>
+          <th class="r">歷史勝率</th>
           <th class="c">訊號</th>
         </tr>
       </thead>
@@ -379,6 +379,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
       <span style="margin-left:8px;color:var(--green)">● 強</span>
       <span style="color:var(--yellow)">● 中</span>
       <span style="color:var(--red)">● 弱</span>
+      <span style="margin-left:16px;color:var(--text3);">歷史勝率：持倉 +7% 獲利 / −10% 停損出場之勝率（2025/1/1–2026/6/25 回測，依類股與評分區間統計）</span>
     </div>
     <div class="disclaimer">
       ⚠️ 本工具僅供參考，不構成投資建議。目標價基於 ATR 波動率與布林通道計算，非保證獲利。<br>
@@ -727,24 +728,6 @@ const ITA_STOCKS = [
 ];
 
 // ══════════════════════════════════════════════════════
-// 黃金/貴金屬 美股掛牌（12支，基準 GDX）
-// ══════════════════════════════════════════════════════
-const GDX_STOCKS = [
-  {t:'NEM',  n:'Newmont'},
-  {t:'AEM',  n:'Agnico Eagle Mines'},
-  {t:'GOLD', n:'Barrick Mining'},
-  {t:'WPM',  n:'Wheaton Precious Metals'},
-  {t:'FNV',  n:'Franco-Nevada'},
-  {t:'AGI',  n:'Alamos Gold'},
-  {t:'KGC',  n:'Kinross Gold'},
-  {t:'BTG',  n:'B2Gold'},
-  {t:'EGO',  n:'Eldorado Gold'},
-  {t:'HL',   n:'Hecla Mining'},
-  {t:'RGLD', n:'Royal Gold'},
-  {t:'OR',   n:'Osisko Gold Royalties'},
-];
-
-// ══════════════════════════════════════════════════════
 // 稀土/關鍵礦產 美股掛牌（10支，基準 REMX）
 // ══════════════════════════════════════════════════════
 const REMX_STOCKS = [
@@ -932,23 +915,6 @@ const SECTOR_CONFIG = {
     tableTitle:'📊 航太國防 Top 10 選股',
     footerText:'數據：Yahoo Finance · iShares ITA 49支 2026/06/26 · 技術面100%',
   },
-  gdx: {
-    pool: GDX_STOCKS,
-    benchmark: 'GDX',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'GDX',
-    poolLabel: 'GDX 黃金/貴金屬',
-    displayName: '黃金貴金屬選股儀表板',
-    logoMark: 'AU',
-    idx1Sym:'GDX',  idx1Name:'VanEck Gold Miners ETF',
-    idx2Sym:'NEM',  idx2Name:'Newmont',
-    idx3Sym:'GOLD', idx3Name:'Barrick Mining',
-    sb1Label:'SPY RSI', sb2Label:'GDX 相對強弱',
-    layer2Text:'個股 vs GDX vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 黃金/貴金屬 Top 10 選股',
-    footerText:'數據：Yahoo Finance · 黃金貴金屬美股精選 12支 2026 · 技術面100%',
-  },
   remx: {
     pool: REMX_STOCKS,
     benchmark: 'REMX',
@@ -967,6 +933,94 @@ const SECTOR_CONFIG = {
     footerText:'數據：Yahoo Finance · 稀土關鍵礦產美股精選 10支 2026 · 技術面100%',
   },
 };
+
+
+// ══════════════════════════════════════════════════════
+// 歷史勝率對照表（2025/1/1–2026/6/25 回測，Top10 進場，+7%/-10% 出場）
+// 黃金類股因勝率全面低於50%已移除
+// ══════════════════════════════════════════════════════
+const WIN_RATE_TABLE = {
+  soxx: [
+    {min:78, max:78, winRate:63.7, count:102},
+    {min:77, max:77, winRate:68.7, count:67},
+    {min:76, max:76, winRate:76.6, count:111},
+    {min:74, max:75, winRate:72.5, count:51},
+    {min:72, max:73, winRate:79.7, count:123},
+    {min:66, max:71, winRate:73.7, count:38},
+  ],
+  xle: [
+    {min:78, max:78, winRate:66.2, count:154},
+    {min:77, max:77, winRate:54.1, count:37},
+    {min:76, max:76, winRate:58.0, count:50},
+    {min:74, max:75, winRate:37.8, count:45},
+    {min:72, max:73, winRate:66.7, count:30},
+    {min:70, max:71, winRate:50.0, count:30},
+    {min:68, max:69, winRate:82.9, count:35},
+    {min:64, max:67, winRate:56.4, count:55},
+    {min:57, max:63, winRate:48.5, count:33},
+  ],
+  xlp: [
+    {min:78, max:78, winRate:58.4, count:202},
+    {min:77, max:77, winRate:67.6, count:34},
+    {min:76, max:76, winRate:60.2, count:83},
+    {min:72, max:75, winRate:67.1, count:76},
+    {min:63, max:71, winRate:80.0, count:35},
+  ],
+  xlv: [
+    {min:78, max:78, winRate:63.7, count:259},
+    {min:76, max:77, winRate:82.9, count:123},
+    {min:68, max:75, winRate:63.9, count:36},
+  ],
+  xlu: [
+    {min:78, max:78, winRate:60.6, count:99},
+    {min:77, max:77, winRate:62.8, count:43},
+    {min:76, max:76, winRate:56.1, count:66},
+    {min:72, max:75, winRate:74.5, count:47},
+    {min:69, max:71, winRate:59.6, count:47},
+    {min:66, max:68, winRate:90.6, count:32},
+    {min:63, max:65, winRate:76.9, count:39},
+    {min:57, max:62, winRate:78.8, count:33},
+  ],
+  tech: [
+    {min:78, max:78, winRate:67.3, count:113},
+    {min:77, max:77, winRate:68.4, count:79},
+    {min:76, max:76, winRate:61.8, count:110},
+    {min:74, max:75, winRate:58.4, count:77},
+    {min:72, max:73, winRate:51.8, count:85},
+    {min:63, max:71, winRate:41.9, count:31},
+  ],
+  ita: [
+    {min:78, max:78, winRate:58.3, count:247},
+    {min:77, max:77, winRate:63.8, count:69},
+    {min:76, max:76, winRate:50.0, count:72},
+    {min:74, max:75, winRate:63.6, count:33},
+    {min:68, max:73, winRate:71.4, count:49},
+  ],
+  remx: [
+    {min:77, max:78, winRate:64.3, count:42},
+    {min:74, max:76, winRate:40.0, count:40},
+    {min:71, max:73, winRate:51.2, count:41},
+    {min:68, max:70, winRate:44.2, count:43},
+    {min:64, max:67, winRate:44.4, count:36},
+    {min:62, max:63, winRate:56.7, count:30},
+    {min:59, max:61, winRate:48.5, count:33},
+    {min:56, max:58, winRate:67.5, count:40},
+    {min:53, max:55, winRate:45.5, count:33},
+    {min:51, max:52, winRate:51.1, count:45},
+    {min:48, max:50, winRate:64.5, count:31},
+    {min:43, max:47, winRate:55.0, count:20},
+  ],
+};
+
+// 查詢勝率：依類股與評分找對應區間
+function lookupWinRate(sector, score){
+  const table = WIN_RATE_TABLE[sector];
+  if(!table) return null;
+  for(const r of table){
+    if(score >= r.min && score <= r.max) return r;
+  }
+  return null;
+}
 
 // ══════════════════════════════════════════════════════
 // 類股管理（取代舊的模式管理）
@@ -1482,7 +1536,7 @@ function renderFromCache(cached, cfg){
     const barClr=s.score>=75?"var(--green)":s.score>=60?"var(--accent)":"var(--yellow)";
     const rankCls=i<3?"rank top3":"rank";
     const sigCls=s.sig==="buy"?"sig-buy":"sig-watch";
-    tbody.innerHTML+=`<tr><td><div class="${rankCls}">${i+1}</div></td><td><div class="sym">${s.ticker}</div><div class="co">${s.name}</div></td><td class="r"><div class="pv">$${s.price.toFixed(2)}</div></td><td class="r"><div class="pv ${tdCls}" style="font-size:13px;">${fmtChg(s.todayChg)}</div></td><td class="r"><div class="pv ${r30Cls}" style="font-size:13px;">${s.ret30!=null?fmtChg(s.ret30):"—"}</div></td><td class="r"><div class="buy-r">$${s.buyLow}–$${s.buyHigh}</div></td><td class="r"><div class="tgt">$${s.target}</div><div class="upside">+${s.upside}%</div></td><td class="c"><div class="dots"><div class="dot d${s.rsiDot}"></div><div class="dot d${s.macdDot}"></div><div class="dot d${s.maDot}"></div><div class="dot d${s.adxDot}"></div><div class="dot d${s.obvDot}"></div></div></td><td><div class="sw"><div class="sb"><div class="sf" style="width:${s.score}%;background:${barClr};"></div></div><span class="sn" style="color:${barClr};">${s.score}</span></div></td><td class="c"><span class="sig ${sigCls}">${s.sigLbl}</span></td></tr>`;
+    tbody.innerHTML+=`<tr><td><div class="${rankCls}">${i+1}</div></td><td><div class="sym">${s.ticker}</div><div class="co">${s.name}</div></td><td class="r"><div class="pv">$${s.price.toFixed(2)}</div></td><td class="r"><div class="pv ${tdCls}" style="font-size:13px;">${fmtChg(s.todayChg)}</div></td><td class="r"><div class="pv ${r30Cls}" style="font-size:13px;">${s.ret30!=null?fmtChg(s.ret30):"—"}</div></td><td class="r"><div class="buy-r">$${s.buyLow}–$${s.buyHigh}</div></td><td class="r"><div class="tgt">$${s.target}</div><div class="upside">+${s.upside}%</div></td><td class="c"><div class="dots"><div class="dot d${s.rsiDot}"></div><div class="dot d${s.macdDot}"></div><div class="dot d${s.maDot}"></div><div class="dot d${s.adxDot}"></div><div class="dot d${s.obvDot}"></div></div></td><td><div class="sw"><div class="sb"><div class="sf" style="width:${s.score}%;background:${barClr};"></div></div><span class="sn" style="color:${barClr};">${s.score}</span></div></td><td class="r">${(()=>{const wr=lookupWinRate(currentSector,s.score);if(!wr)return '<span style="color:var(--text3)">—</span>';const cls=wr.winRate>=65?'up':wr.winRate>=50?'neu':'dn';return `<span class="${cls}" style="font-family:var(--mono);font-weight:600;">${wr.winRate}%</span><div style="font-size:9px;color:var(--text3);">${wr.count}筆樣本</div>`;})()}</td><td class="c"><span class="sig ${sigCls}">${s.sigLbl}</span></td></tr>`;
   });
   document.getElementById("tableMeta").textContent=isSentiment
     ?`從 ${results_length} 支正報酬標的中篩選 · 技術面80% + 情緒面20%（快取）`
@@ -1832,6 +1886,12 @@ async function runAll(forceRefresh=false){
             <span class="sn" style="color:${barClr};">${s.score}</span>
           </div>
         </td>
+        <td class="r">${(()=>{
+          const wr=lookupWinRate(currentSector,s.score);
+          if(!wr) return '<span style="color:var(--text3)">—</span>';
+          const cls=wr.winRate>=65?'up':wr.winRate>=50?'neu':'dn';
+          return `<span class="${cls}" style="font-family:var(--mono);font-weight:600;">${wr.winRate}%</span><div style="font-size:9px;color:var(--text3);">${wr.count}筆樣本</div>`;
+        })()}</td>
         <td class="c"><span class="sig ${sigCls}">${s.sigLbl}</span></td>
       </tr>`;
     });
