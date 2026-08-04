@@ -1451,13 +1451,20 @@ function parseChart(data){
     prev=closes.at(-2);
     todayChg=prev?(price-prev)/prev*100:0;
   } else {
-    // 日線最後一筆還是昨天（例如盤前尚未產生今日K棒）：用最新即時報價對比昨收，
-    // 但即時報價仍做合理性檢查，避免單一雜訊快照污染結果
+    // 日線最後一筆不是今天（盤前尚未產生今日K棒，或週末/假日）
     const lastClose=closes.at(-1);
+    const prevClose=closes.length>=2?closes.at(-2):lastClose;
     let liveMP=r.meta.regularMarketPrice;
     const sane=liveMP!=null&&lastClose>0&&Math.abs(liveMP-lastClose)/lastClose<=0.30;
-    price=sane?liveMP:lastClose;
-    prev=lastClose;
+    if(sane&&Math.abs(liveMP-lastClose)/lastClose>0.0001){
+      // 即時報價與昨收有差異（盤中/盤前有成交）：現價=即時報價，基準=昨收
+      price=liveMP;
+      prev=lastClose;
+    } else {
+      // 即時報價等同昨收（盤前未成交、休市）：顯示最後一個交易日的漲跌
+      price=lastClose;
+      prev=prevClose;
+    }
     todayChg=prev?(price-prev)/prev*100:0;
   }
 
@@ -1588,8 +1595,11 @@ updateClock();
 function getCacheKey(sector){
   // 用台灣時間換算成美東時間，判斷目前是哪個時段
   const now = new Date();
-  const etStr = now.toLocaleString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false});
-  const [h,m] = etStr.split(':').map(Number);
+  // 用 formatToParts 精確取值，避免 toLocaleString 回傳格式因環境而異造成解析失敗
+  const parts = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(now);
+  const h = Number(parts.find(p=>p.type==='hour')?.value);
+  const m = Number(parts.find(p=>p.type==='minute')?.value);
+  if(Number.isNaN(h)||Number.isNaN(m)) return null; // 解析失敗時不快取，寧可重算
   const isMarket = h>9||(h===9&&m>=30); // 09:30 開盤起算
   const isAfterClose = h>=16; // 16:00 收盤起算
   // 盤中（09:30–15:59）不快取（股價還在變）
