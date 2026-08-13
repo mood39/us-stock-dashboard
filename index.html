@@ -1,1966 +1,232 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>半導體選股儀表板</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<style>
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
-:root{
-  /* 深炭灰暖底色 */
-  --bg:#1a1714;--bg2:#221e1a;--bg3:#2c2620;
-  --border:#3a3028;--border2:#4a3e30;
-  /* 文字：暖白系 */
-  --text:#f0e8d8;--text2:#9a8870;--text3:#6a5a48;
-  /* 漲：鮮紅（台灣漲色）*/
-  --up:#ff4444;--up-bg:rgba(255,68,68,.12);
-  /* 跌：翠綠（台灣跌色）*/
-  --dn:#00c853;--dn-bg:rgba(0,200,83,.12);
-  /* 主色調：暖金 */
-  --accent:#e8a840;--accent2:#f0c060;
-  /* 警示橘黃 */
-  --yellow:#f0a030;--yellow-bg:rgba(240,160,48,.12);
-  /* 相容舊名稱 */
-  --green:var(--dn);--green-bg:var(--dn-bg);
-  --red:var(--up);--red-bg:var(--up-bg);
-  --mono:'JetBrains Mono',monospace;
-  --sans:'Inter',-apple-system,sans-serif;
-}
-body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.5;}
+// ============================================================
+// 半導體選股儀表板 - Cloudflare Workers
+// 路由：
+//   /?t=TICKER          → 代理 Yahoo Finance
+//   /news?t=TICKER      → 代理 Finnhub 新聞
+//   /sentiment          → 代理 Claude API 情緒分析（帶時段快取）
+//   /health             → 健康檢查
+//
+// v2.3 修正：時區解析改用 formatToParts，避免快取時段誤判
+// v2.2 新增：
+//   - 快取層（Cache API）：股價 90 秒、新聞 300 秒、情緒分析按時段快取
+//   - 情緒分析快取 key = sentiment:{時段}
+//     時段A：美東 00:00–09:29（台灣 13:00–21:29，盤前）
+//     時段B：美東 09:30–23:59（台灣 21:30–隔天 12:59，盤中/盤後）
+//     同一時段內任何人跑過一次，其他人直接吃快取，不重打 Claude API
+//   - 速率限制改由前端按鈕冷卻（30秒）處理，不需要 KV
+// ============================================================
 
-/* ── Header 兩層結構 ── */
-header{
-  background:var(--bg2);
-  border-bottom:1px solid var(--border);
-  position:sticky;top:0;z-index:100;
-}
-.header-top{
-  padding:0 20px;
-  height:52px;
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-}
-.header-sector{
-  background:var(--bg3);
-  border-top:1px solid var(--border);
-  padding:6px 16px;
-  display:flex;align-items:center;gap:6px;
-  flex-wrap:wrap;   /* 超過螢幕寬度自動換行 */
-}
-.logo{display:flex;align-items:center;gap:8px;flex-shrink:0;}
-.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:600;color:#fff;flex-shrink:0;}
-.logo-text{font-size:15px;font-weight:600;white-space:nowrap;}
-.logo-sub{font-size:10px;color:var(--text3);margin-left:4px;white-space:nowrap;}
-.header-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;}
-.upd-time{font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap;}
-.run-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;transition:opacity .15s;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
-.run-btn:hover{opacity:.85;}
-.run-btn:disabled{opacity:.4;cursor:not-allowed;}
-/* 類股按鈕 */
-.mode-btn{background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:500;cursor:pointer;transition:all .2s;font-family:var(--sans);white-space:nowrap;}
-.mode-btn:hover{color:var(--text);border-color:var(--accent);}
-.mode-btn.active{background:var(--accent);color:#fff;font-weight:600;border-color:var(--accent);}
-/* 手機直式：logo-sub 隱藏，縮小字 */
-@media(max-width:600px){
-  .logo-sub{display:none;}
-  .logo-text{font-size:13px;}
-  .upd-time{display:none;}
-  .run-btn{padding:6px 10px;font-size:12px;}
-  .mode-btn{font-size:10px;padding:4px 8px;}
-  .header-sector{padding:5px 10px;gap:4px;}
-}
+const FINNHUB_KEY = 'd8t5sf9r01qh5rf2rvtgd8t5sf9r01qh5rf2rvu0';
 
-.container{max-width:1200px;margin:0 auto;padding:20px 24px;}
-.gap{margin-bottom:16px;}
-
-/* 時鐘列（3欄）*/
-.clock-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;}
-.ck{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
-.ck-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
-.ck-val{font-family:var(--mono);font-size:18px;font-weight:600;}
-.ck-sub{font-size:11px;color:var(--text2);margin-top:4px;}
-
-/* 四層評分模型橫條 */
-.model-bar{border-top:1px solid var(--accent);border-bottom:1px solid var(--accent);padding:10px 20px;display:flex;align-items:center;gap:0;margin-bottom:0;}
-.model-layer{flex:1;display:flex;align-items:center;gap:10px;padding:0 16px;}
-.model-layer:first-child{padding-left:0;}
-.model-layer:last-child{padding-right:0;}
-.model-num{width:22px;height:22px;border-radius:5px;background:rgba(232,168,64,.15);color:var(--accent2);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.model-text{font-size:11px;color:var(--text3);line-height:1.4;}
-.model-divider{width:1px;height:28px;background:var(--border);flex-shrink:0;}
-
-/* 期貨列（含市場強度）*/
-.fut-row{display:grid;grid-template-columns:auto repeat(3,1fr);gap:12px;margin-bottom:16px;}
-.fut{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;}
-.fut-sym{font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.5px;margin-bottom:3px;}
-.fut-name{font-size:13px;font-weight:500;}
-.fut-price{font-family:var(--mono);font-size:20px;font-weight:600;text-align:right;}
-.fut-chg{font-family:var(--mono);font-size:12px;text-align:right;margin-top:3px;}
-/* 市場強度小卡 */
-.mkt-strength{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;justify-content:center;min-width:140px;}
-.mkt-str-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
-.mkt-str-val{font-family:var(--mono);font-size:28px;font-weight:700;line-height:1;}
-.mkt-str-lbl{font-size:12px;font-weight:600;margin-top:4px;}
-
-/* 市場強度子因子列 */
-.strength-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:16px;}
-.strength-bars{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;}
-.sbar{background:var(--bg3);border-radius:8px;padding:10px 12px;}
-.sbar-label{font-size:10px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
-.sbar-val{font-family:var(--mono);font-size:13px;font-weight:600;margin-bottom:6px;}
-.sbar-bg{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
-.sbar-fill{height:4px;border-radius:2px;}
-
-/* 新聞 */
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
-.card-hd{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
-.card-title{font-size:13px;font-weight:600;}
-.card-meta{font-size:11px;color:var(--text3);}
-.news-item{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px;}
-.news-item:last-child{border-bottom:none;}
-.news-icon{font-size:14px;flex-shrink:0;margin-top:1px;}
-.news-body{flex:1;}
-.news-text{font-size:13px;line-height:1.5;}
-.news-meta{font-size:11px;color:var(--text3);margin-top:2px;}
-.ntag{font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;flex-shrink:0;}
-.ntag-pos{background:var(--green-bg);color:var(--green);}
-.ntag-neg{background:var(--red-bg);color:var(--red);}
-.ntag-neu{background:var(--yellow-bg);color:var(--yellow);}
-
-/* 表格 */
-table{width:100%;border-collapse:collapse;}
-thead th{background:var(--bg3);padding:9px 12px;font-size:10px;font-weight:600;color:var(--text3);text-align:left;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;border-bottom:1px solid var(--border);}
-thead th.r{text-align:right;} thead th.c{text-align:center;}
-tbody tr{border-bottom:1px solid var(--border);transition:background .1s;}
-tbody tr:last-child{border-bottom:none;}
-tbody tr:hover{background:var(--bg3);}
-tbody td{padding:11px 12px;font-size:13px;vertical-align:middle;}
-tbody td.r{text-align:right;} tbody td.c{text-align:center;}
-.rank{width:24px;height:24px;border-radius:6px;background:var(--bg3);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2);}
-.rank.top3{background:rgba(79,142,247,.15);border-color:var(--accent);color:var(--accent2);}
-.sym{font-family:var(--mono);font-weight:600;font-size:14px;color:var(--accent2);}
-.co{font-size:11px;color:var(--text3);margin-top:2px;}
-.pv{font-family:var(--mono);font-weight:600;font-size:14px;}
-.pc{font-family:var(--mono);font-size:11px;margin-top:2px;}
-.r30{font-family:var(--mono);font-size:13px;font-weight:600;}
-.r30-lbl{font-size:10px;color:var(--text3);margin-top:2px;}
-.buy-r{font-family:var(--mono);font-size:12px;color:var(--text2);}
-.tgt{font-family:var(--mono);font-weight:600;font-size:13px;color:var(--accent2);}
-.upside{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;margin-top:3px;background:var(--green-bg);color:var(--green);}
-.dots{display:flex;gap:4px;justify-content:center;}
-.dot{width:8px;height:8px;border-radius:50%;}
-.dg{background:var(--green);box-shadow:0 0 5px rgba(52,211,153,.4);}
-.dy{background:var(--yellow);}
-.dr{background:var(--red);}
-.sw{display:flex;align-items:center;gap:8px;}
-.sb{flex:1;height:5px;background:var(--bg3);border-radius:3px;min-width:50px;}
-.sf{height:5px;border-radius:3px;}
-.sn{font-family:var(--mono);font-size:12px;font-weight:600;min-width:24px;}
-.sig{display:inline-flex;align-items:center;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:600;}
-.sig-buy{background:var(--green-bg);color:var(--green);}
-.sig-watch{background:var(--yellow-bg);color:var(--yellow);}
-
-.up{color:var(--up);} .down{color:var(--dn);} .neu{color:var(--text2);}
-
-/* 進度 */
-.prog-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:40px 20px;text-align:center;margin-bottom:16px;}
-.spinner{width:36px;height:36px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 16px;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.prog-title{font-size:15px;font-weight:600;margin-bottom:6px;}
-.prog-sub{font-size:12px;color:var(--text2);margin-bottom:16px;min-height:18px;}
-.prog-bg{background:var(--bg3);border-radius:4px;height:4px;max-width:360px;margin:0 auto;overflow:hidden;}
-.prog-fill{height:4px;background:var(--accent);border-radius:4px;transition:width .4s;}
-.prog-pct{font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:8px;}
-
-.err-card{background:var(--red-bg);border:1px solid var(--red);border-radius:10px;padding:20px;text-align:center;color:var(--red);margin-bottom:16px;}
-.disclaimer{font-size:11px;color:var(--text3);padding:10px 16px;border-top:1px solid var(--border);line-height:1.6;}
-.dot-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text3);padding:8px 16px;border-top:1px solid var(--border);}
-.dot-legend span{display:flex;align-items:center;gap:4px;}
-.hidden{display:none!important;}
-footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);margin-top:8px;}
-
-@media(max-width:1000px){
-  .fut-row{grid-template-columns:repeat(2,1fr);}
-  .strength-bars{grid-template-columns:repeat(3,1fr);}
-  thead th:nth-child(5),tbody td:nth-child(5){display:none;}
-}
-@media(max-width:600px){
-  .container{padding:12px;}
-  .clock-row{grid-template-columns:repeat(2,1fr);}
-  .fut-row{grid-template-columns:1fr 1fr;}
-  .strength-bars{grid-template-columns:repeat(2,1fr);}
-}
-</style>
-</head>
-<body>
-
-<header>
-  <!-- 第一層：Logo + 更新時間 + 開始分析 -->
-  <div class="header-top">
-    <div class="logo">
-      <div class="logo-mark" id="logoMark">SOX</div>
-      <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v3.1</span>
-    </div>
-    <div class="header-actions">
-      <span class="upd-time">更新：<span id="updTime">—</span></span>
-      <button class="run-btn" id="runBtn" onclick="runAll()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>
-        開始分析
-      </button>
-    </div>
-  </div>
-  <!-- 第二層：類股切換（可換行）-->
-  <div class="header-sector" id="modeSwitch">
-    <button class="mode-btn active" id="sectorBtnSOXX" onclick="switchSector('soxx')">💾 半導體</button>
-    <button class="mode-btn" id="sectorBtnXLE"  onclick="switchSector('xle')">⛽ 能源</button>
-    <button class="mode-btn" id="sectorBtnXLP"  onclick="switchSector('xlp')">🛒 消費必需品</button>
-    <button class="mode-btn" id="sectorBtnXLV"  onclick="switchSector('xlv')">🏥 醫療保健</button>
-    <button class="mode-btn" id="sectorBtnXLU"  onclick="switchSector('xlu')">⚡ 公用事業</button>
-    <button class="mode-btn" id="sectorBtnTECH" onclick="switchSector('tech')">🚀 AI & 太空</button>
-    <button class="mode-btn" id="sectorBtnITA"  onclick="switchSector('ita')">🛡️ 航太國防</button>
-    <button class="mode-btn" id="sectorBtnREMX" onclick="switchSector('remx')">⚗️ 稀土</button>
-  </div>
-</header>
-
-<div class="container">
-
-  <!-- 時間列（3欄）-->
-  <div class="clock-row">
-    <div class="ck">
-      <div class="ck-label">台灣時間</div>
-      <div class="ck-val" id="twTime">—</div>
-      <div class="ck-sub" id="twSession">—</div>
-    </div>
-    <div class="ck">
-      <div class="ck-label">美東時間</div>
-      <div class="ck-val" id="usTime">—</div>
-      <div class="ck-sub" id="usSession">—</div>
-    </div>
-    <div class="ck">
-      <div class="ck-label">分析股票數</div>
-      <div class="ck-val neu" id="mktCount">—</div>
-      <div class="ck-sub" id="mktPoolLabel">SOXX 成分股</div>
-    </div>
-  </div>
-
-  <!-- 期貨列（市場強度整合在左邊）-->
-  <div class="fut-row gap">
-    <!-- 市場強度 -->
-    <div class="mkt-strength">
-      <div class="mkt-str-label">市場強度指數</div>
-      <div class="mkt-str-val neu" id="strengthScore">—</div>
-      <div class="mkt-str-lbl neu" id="strengthLabel">載入中</div>
-    </div>
-    <!-- 指數 1 -->
-    <div class="fut">
-      <div><div class="fut-sym" id="idx1Sym">NQ=F</div><div class="fut-name" id="idx1Name">納斯達克期貨</div></div>
-      <div><div class="fut-price neu" id="nqPrice">—</div><div class="fut-chg neu" id="nqChg">載入中</div></div>
-    </div>
-    <!-- 指數 2 -->
-    <div class="fut">
-      <div><div class="fut-sym" id="idx2Sym">ES=F</div><div class="fut-name" id="idx2Name">S&P 500 期貨</div></div>
-      <div><div class="fut-price neu" id="esPrice">—</div><div class="fut-chg neu" id="esChg">載入中</div></div>
-    </div>
-    <!-- 指數 3 -->
-    <div class="fut">
-      <div><div class="fut-sym" id="idx3Sym">^SOX</div><div class="fut-name" id="idx3Name">費城半導體指數</div></div>
-      <div><div class="fut-price neu" id="soxPrice">—</div><div class="fut-chg neu" id="soxChg">載入中</div></div>
-    </div>
-  </div>
-
-  <!-- 等待分析提示（初始狀態）-->
-  <div class="prog-card gap" id="idleCard">
-    <div style="font-size:32px;margin-bottom:12px;">📊</div>
-    <div class="prog-title" id="idleTitle">選擇市場，開始分析</div>
-    <div class="prog-sub" style="color:var(--text2);">從上方選擇類股，再按「開始分析」</div>
-  </div>
-
-  <!-- 進度條 -->
-  <div class="prog-card gap hidden" id="progressCard">
-    <div class="spinner"></div>
-    <div class="prog-title" id="progTitle">正在分析市場</div>
-    <div class="prog-sub" id="progSub">初始化中...</div>
-    <div class="prog-bg"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
-    <div class="prog-pct" id="progPct">0%</div>
-  </div>
-
-  <!-- 錯誤 -->
-  <div class="err-card hidden" id="errCard">
-    ⚠️ <strong>分析失敗</strong><br><span id="errMsg"></span>
-  </div>
-
-  <!-- 四層評分模型橫條（夾在市場強度與子因子之間）-->
-  <div class="model-bar hidden" id="modelBar">
-    <div class="model-layer">
-      <div class="model-num">①</div>
-      <div class="model-text">RSI + MACD + 布林通道 + 均線</div>
-    </div>
-    <div class="model-divider"></div>
-    <div class="model-layer">
-      <div class="model-num">②</div>
-      <div class="model-text" id="modelLayer2Text">個股 vs SOXX vs SPY 相對強弱</div>
-    </div>
-    <div class="model-divider"></div>
-    <div class="model-layer">
-      <div class="model-num">③</div>
-      <div class="model-text">ATR + ADX + OBV + 波動率</div>
-    </div>
-    <div class="model-divider" id="modelDivider4"></div>
-    <div class="model-layer" id="modelLayer4">
-      <div class="model-num">④</div>
-      <div class="model-text">Finnhub News + Claude AI</div>
-    </div>
-  </div>
-
-  <!-- 市場強度子因子 -->
-  <div class="strength-card gap hidden" id="strengthCard">
-    <div class="strength-bars">
-      <div class="sbar">
-        <div class="sbar-label" id="sb1Label">SPY RSI</div>
-        <div class="sbar-val" id="sb1Val">—</div>
-        <div class="sbar-bg"><div class="sbar-fill" id="sb1Bar" style="width:0%"></div></div>
-      </div>
-      <div class="sbar">
-        <div class="sbar-label" id="sb2Label">SOXX 相對強弱</div>
-        <div class="sbar-val" id="sb2Val">—</div>
-        <div class="sbar-bg"><div class="sbar-fill" id="sb2Bar" style="width:0%"></div></div>
-      </div>
-      <div class="sbar">
-        <div class="sbar-label">均線趨勢</div>
-        <div class="sbar-val" id="sb3Val">—</div>
-        <div class="sbar-bg"><div class="sbar-fill" id="sb3Bar" style="width:0%"></div></div>
-      </div>
-      <div class="sbar">
-        <div class="sbar-label">波動率（反向）</div>
-        <div class="sbar-val" id="sb4Val">—</div>
-        <div class="sbar-bg"><div class="sbar-fill" id="sb4Bar" style="width:0%"></div></div>
-      </div>
-      <div class="sbar">
-        <div class="sbar-label">20日動能</div>
-        <div class="sbar-val" id="sb5Val">—</div>
-        <div class="sbar-bg"><div class="sbar-fill" id="sb5Bar" style="width:0%"></div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Top 10 -->
-  <div class="card gap hidden" id="tableCard">
-    <div class="card-hd">
-      <span class="card-title" id="tableTitle">📊 SOXX Top 10 選股</span>
-      <span class="card-meta" id="tableMeta"></span>
-    </div>
-    <div style="overflow-x:auto;">
-    <table>
-      <thead>
-        <tr>
-          <th style="width:36px">#</th>
-          <th>代號 / 名稱</th>
-          <th class="r">現價</th>
-          <th class="r">今日漲跌</th>
-          <th class="r">過去30日</th>
-          <th class="r">買入區間</th>
-          <th class="r">目標價 / 空間</th>
-          <th class="c">指標</th>
-          <th>評分</th>
-          <th class="r">歷史勝率</th>
-          <th class="c">訊號</th>
-        </tr>
-      </thead>
-      <tbody id="stockBody"></tbody>
-    </table>
-    </div>
-    <div class="dot-legend">
-      <span><span class="dot dg" style="display:inline-block"></span>RSI</span>
-      <span><span class="dot dg" style="display:inline-block"></span>MACD</span>
-      <span><span class="dot dg" style="display:inline-block"></span>均線</span>
-      <span><span class="dot dg" style="display:inline-block"></span>ADX</span>
-      <span><span class="dot dg" style="display:inline-block"></span>OBV</span>
-      <span style="margin-left:8px;color:var(--green)">● 強</span>
-      <span style="color:var(--yellow)">● 中</span>
-      <span style="color:var(--red)">● 弱</span>
-      <span style="margin-left:16px;color:var(--text3);">歷史勝率：持倉 +7% 獲利 / −10% 停損出場之勝率（2025/1/1–2026/6/25 回測）。括號內為 95% 信賴區間；黃底 = 樣本 &lt;30 筆，僅供參考</span>
-    </div>
-    <div class="disclaimer">
-      ⚠️ 本工具僅供參考，不構成投資建議。目標價基於 ATR 波動率與布林通道計算，非保證獲利。<br>
-      Yahoo Finance 數據有 15 分鐘延遲。投報率已過濾負值，僅顯示具正報酬潛力的標的。
-    </div>
-  </div>
-
-  <!-- 新聞（只顯示有極性的）-->
-  <div class="card gap hidden" id="newsCard">
-    <div class="card-hd">
-      <span class="card-title">📰 今日半導體重大新聞</span>
-      <span class="card-meta" id="newsMeta">Finnhub + Claude AI · 僅顯示有明確影響的新聞</span>
-    </div>
-    <div id="newsList"></div>
-  </div>
-
-</div>
-
-<footer id="footerText">數據：Yahoo Finance · Finnhub · Claude AI（情緒分析）· SOXX 成分股 2026</footer>
-
-<script>
-// ══════════════════════════════════════════════════════
-// 設定
-// ══════════════════════════════════════════════════════
-const WORKER = 'https://stock-proxy.mood39.workers.dev';
-
-const SOXX = [
-  {t:'MU',   n:'Micron Technology'},
-  {t:'AMD',  n:'Advanced Micro Devices'},
-  {t:'AVGO', n:'Broadcom'},
-  {t:'INTC', n:'Intel'},
-  {t:'MRVL', n:'Marvell Technology'},
-  {t:'NVDA', n:'NVIDIA'},
-  {t:'AMAT', n:'Applied Materials'},
-  {t:'QCOM', n:'Qualcomm'},
-  {t:'TXN',  n:'Texas Instruments'},
-  {t:'NXPI', n:'NXP Semiconductors'},
-  {t:'LRCX', n:'Lam Research'},
-  {t:'KLAC', n:'KLA Corp.'},
-  {t:'ADI',  n:'Analog Devices'},
-  {t:'MCHP', n:'Microchip Technology'},
-  {t:'ON',   n:'ON Semiconductor'},
-  {t:'SWKS', n:'Skyworks Solutions'},
-  {t:'MPWR', n:'Monolithic Power'},
-  {t:'ENTG', n:'Entegris'},
-  {t:'WOLF', n:'Wolfspeed'},
-  {t:'ACLS', n:'Axcelis Technologies'},
-  {t:'ONTO', n:'Onto Innovation'},
-  {t:'RMBS', n:'Rambus'},
-  {t:'CRUS', n:'Cirrus Logic'},
-  {t:'DIOD', n:'Diodes'},
-  {t:'FORM', n:'FormFactor'},
-  {t:'AMBA', n:'Ambarella'},
-  {t:'TSM',  n:'Taiwan Semiconductor'},
-  {t:'SNDK', n:'SanDisk'},
-  {t:'CSCO', n:'Cisco Systems'},
-  {t:'LITE', n:'Lumentum'},
-  {t:'AAPL', n:'Apple'},
-  {t:'GEV',  n:'GE Vernova'},
-  {t:'BE',   n:'Bloom Energy'},
-  {t:'LIN',  n:'Linde plc'},
-];
-
-// ══════════════════════════════════════════════════════
-// 0050 成分股（2026 Q1，50支，Yahoo Finance .TW 後綴）
-// 更新方式：查 https://www.yuantaetfs.com/product/detail/0050/ratio
-// ══════════════════════════════════════════════════════
-const TW0050 = [
-  {t:'2330.TW', n:'台積電'},
-  {t:'2454.TW', n:'聯發科'},
-  {t:'2308.TW', n:'台達電'},
-  {t:'2317.TW', n:'鴻海'},
-  {t:'3711.TW', n:'日月光投控'},
-  {t:'2303.TW', n:'聯電'},
-  {t:'2383.TW', n:'台光電'},
-  {t:'2891.TW', n:'中信金'},
-  {t:'2345.TW', n:'智邦'},
-  {t:'2882.TW', n:'國泰金'},
-  {t:'3037.TW', n:'欣興'},
-  {t:'2382.TW', n:'廣達'},
-  {t:'2886.TW', n:'兆豐金'},
-  {t:'2884.TW', n:'玉山金'},
-  {t:'2881.TW', n:'富邦金'},
-  {t:'1301.TW', n:'台塑'},
-  {t:'1303.TW', n:'南亞'},
-  {t:'2412.TW', n:'中華電'},
-  {t:'2002.TW', n:'中鋼'},
-  {t:'2880.TW', n:'華南金'},
-  {t:'2885.TW', n:'元大金'},
-  {t:'2892.TW', n:'第一金'},
-  {t:'5880.TW', n:'合庫金'},
-  {t:'2887.TW', n:'台新金'},
-  {t:'2890.TW', n:'永豐金'},
-  {t:'1216.TW', n:'統一'},
-  {t:'2357.TW', n:'華碩'},
-  {t:'2395.TW', n:'研華'},
-  {t:'4904.TW', n:'遠傳'},
-  {t:'2207.TW', n:'和泰車'},
-  {t:'6505.TW', n:'台塑化'},
-  {t:'2344.TW', n:'華邦電'},
-  {t:'2449.TW', n:'京元電子'},
-  {t:'2368.TW', n:'金像電'},
-  {t:'7769.TW', n:'鴻勁'},
-  {t:'2376.TW', n:'技嘉'},
-  {t:'3008.TW', n:'大立光'},
-  {t:'2327.TW', n:'國巨'},
-  {t:'2301.TW', n:'光寶科'},
-  {t:'2474.TW', n:'可成'},
-  {t:'3045.TW', n:'台灣大'},
-  {t:'1326.TW', n:'台化'},
-  {t:'2408.TW', n:'南亞科'},
-  {t:'2354.TW', n:'鴻準'},
-  {t:'4938.TW', n:'和碩'},
-  {t:'2353.TW', n:'宏碁'},
-  {t:'2379.TW', n:'瑞昱'},
-  {t:'3034.TW', n:'聯詠'},
-  {t:'2912.TW', n:'統一超'},
-  {t:'2615.TW', n:'萬海'},
-];
-
-// ══════════════════════════════════════════════════════
-// XLE 能源 ETF 成分股（24支，2026/06）
-// ══════════════════════════════════════════════════════
-const XLE_STOCKS = [
-  // 官方來源：State Street XLE 2026/06/26（21支）
-  {t:'XOM',  n:'Exxon Mobil'},
-  {t:'CVX',  n:'Chevron'},
-  {t:'COP',  n:'ConocoPhillips'},
-  {t:'WMB',  n:'Williams Companies'},
-  {t:'VLO',  n:'Valero Energy'},
-  {t:'MPC',  n:'Marathon Petroleum'},
-  {t:'EOG',  n:'EOG Resources'},
-  {t:'SLB',  n:'SLB'},
-  {t:'PSX',  n:'Phillips 66'},
-  {t:'KMI',  n:'Kinder Morgan'},
-  {t:'TRGP', n:'Targa Resources'},
-  {t:'OKE',  n:'ONEOK'},
-  {t:'BKR',  n:'Baker Hughes'},
-  {t:'DVN',  n:'Devon Energy'},
-  {t:'OXY',  n:'Occidental Petroleum'},
-  {t:'FANG', n:'Diamondback Energy'},
-  {t:'EQT',  n:'EQT Corp'},
-  {t:'HAL',  n:'Halliburton'},
-  {t:'TPL',  n:'Texas Pacific Land'},
-  {t:'EXE',  n:'Expand Energy'},
-  {t:'APA',  n:'APA Corp'},
-];
-
-// ══════════════════════════════════════════════════════
-// XLP 消費必需品 ETF 成分股（25支，2026/06）
-// ══════════════════════════════════════════════════════
-const XLP_STOCKS = [
-  // 官方來源：State Street XLP 2026/06/26（35支）
-  {t:'WMT',  n:'Walmart'},
-  {t:'COST', n:'Costco Wholesale'},
-  {t:'PG',   n:'Procter & Gamble'},
-  {t:'KO',   n:'Coca-Cola'},
-  {t:'PM',   n:'Philip Morris International'},
-  {t:'CL',   n:'Colgate-Palmolive'},
-  {t:'MO',   n:'Altria Group'},
-  {t:'PEP',  n:'PepsiCo'},
-  {t:'MNST', n:'Monster Beverage'},
-  {t:'MDLZ', n:'Mondelez International'},
-  {t:'TGT',  n:'Target'},
-  {t:'KDP',  n:'Keurig Dr Pepper'},
-  {t:'SYY',  n:'Sysco'},
-  {t:'ADM',  n:'Archer Daniels Midland'},
-  {t:'KVUE', n:'Kenvue'},
-  {t:'KMB',  n:'Kimberly-Clark'},
-  {t:'KR',   n:'Kroger'},
-  {t:'CASY', n:'Casey\'s General Stores'},
-  {t:'HSY',  n:'Hershey'},
-  {t:'DG',   n:'Dollar General'},
-  {t:'CHD',  n:'Church & Dwight'},
-  {t:'DLTR', n:'Dollar Tree'},
-  {t:'STZ',  n:'Constellation Brands'},
-  {t:'KHC',  n:'Kraft Heinz'},
-  {t:'EL',   n:'Estee Lauder'},
-  {t:'GIS',  n:'General Mills'},
-  {t:'TSN',  n:'Tyson Foods'},
-  {t:'BG',   n:'Bunge Global'},
-  {t:'MKC',  n:'McCormick & Co'},
-  {t:'SJM',  n:'JM Smucker'},
-  {t:'CLX',  n:'Clorox'},
-  {t:'HRL',  n:'Hormel Foods'},
-  {t:'CAG',  n:'Conagra Brands'},
-  {t:'TAP',  n:'Molson Coors Beverage'},
-  {t:'BF-B',  n:'Brown-Forman Class B'},
-];
-
-// ══════════════════════════════════════════════════════
-// XLV 醫療保健 ETF 成分股（前25支，2026/06）
-// ══════════════════════════════════════════════════════
-const XLV_STOCKS = [
-  // 官方來源：State Street XLV 2026/06/26（59支，去除期貨）
-  {t:'LLY',  n:'Eli Lilly'},
-  {t:'JNJ',  n:'Johnson & Johnson'},
-  {t:'ABBV', n:'AbbVie'},
-  {t:'UNH',  n:'UnitedHealth Group'},
-  {t:'MRK',  n:'Merck & Co'},
-  {t:'AMGN', n:'Amgen'},
-  {t:'TMO',  n:'Thermo Fisher Scientific'},
-  {t:'ABT',  n:'Abbott Laboratories'},
-  {t:'GILD', n:'Gilead Sciences'},
-  {t:'ISRG', n:'Intuitive Surgical'},
-  {t:'PFE',  n:'Pfizer'},
-  {t:'CVS',  n:'CVS Health'},
-  {t:'VRTX', n:'Vertex Pharmaceuticals'},
-  {t:'DHR',  n:'Danaher'},
-  {t:'BMY',  n:'Bristol-Myers Squibb'},
-  {t:'SYK',  n:'Stryker'},
-  {t:'MDT',  n:'Medtronic'},
-  {t:'MCK',  n:'McKesson'},
-  {t:'ELV',  n:'Elevance Health'},
-  {t:'CI',   n:'Cigna Group'},
-  {t:'BSX',  n:'Boston Scientific'},
-  {t:'REGN', n:'Regeneron'},
-  {t:'HCA',  n:'HCA Healthcare'},
-  {t:'CAH',  n:'Cardinal Health'},
-  {t:'COR',  n:'Cencora'},
-  {t:'EW',   n:'Edwards Lifesciences'},
-  {t:'HUM',  n:'Humana'},
-  {t:'IDXX', n:'IDEXX Laboratories'},
-  {t:'BDX',  n:'Becton Dickinson'},
-  {t:'A',    n:'Agilent Technologies'},
-  {t:'WAT',  n:'Waters'},
-  {t:'IQV',  n:'IQVIA Holdings'},
-  {t:'ZTS',  n:'Zoetis'},
-  {t:'BIIB', n:'Biogen'},
-  {t:'CNC',  n:'Centene'},
-  {t:'GEHC', n:'GE Healthcare'},
-  {t:'RMD',  n:'ResMed'},
-  {t:'DXCM', n:'DexCom'},
-  {t:'VEEV', n:'Veeva Systems'},
-  {t:'MTD',  n:'Mettler-Toledo'},
-  {t:'WST',  n:'West Pharmaceutical'},
-  {t:'MRNA', n:'Moderna'},
-  {t:'DGX',  n:'Quest Diagnostics'},
-  {t:'LH',   n:'Labcorp Holdings'},
-  {t:'STE',  n:'Steris'},
-  {t:'INCY', n:'Incyte'},
-  {t:'VTRS', n:'Viatris'},
-  {t:'ZBH',  n:'Zimmer Biomet'},
-  {t:'COO',  n:'Cooper Companies'},
-  {t:'RVTY', n:'Revvity'},
-  {t:'ALGN', n:'Align Technology'},
-  {t:'SOLV', n:'Solventum'},
-  {t:'BAX',  n:'Baxter International'},
-  {t:'TECH', n:'Bio-Techne'},
-  {t:'PODD', n:'Insulet'},
-  {t:'CRL',  n:'Charles River Labs'},
-  {t:'HSIC', n:'Henry Schein'},
-  {t:'UHS',  n:'Universal Health Services'},
-  {t:'DVA',  n:'DaVita'},
-];
-
-// ══════════════════════════════════════════════════════
-// XLU 公用事業 ETF 成分股（25支，2026/06）
-// ══════════════════════════════════════════════════════
-const XLU_STOCKS = [
-  // 官方來源：State Street XLU 2026/06/26（31支）
-  {t:'NEE',  n:'NextEra Energy'},
-  {t:'SO',   n:'Southern Company'},
-  {t:'DUK',  n:'Duke Energy'},
-  {t:'CEG',  n:'Constellation Energy'},
-  {t:'AEP',  n:'American Electric Power'},
-  {t:'SRE',  n:'Sempra'},
-  {t:'D',    n:'Dominion Energy'},
-  {t:'ETR',  n:'Entergy'},
-  {t:'VST',  n:'Vistra'},
-  {t:'XEL',  n:'Xcel Energy'},
-  {t:'EXC',  n:'Exelon'},
-  {t:'PEG',  n:'Public Service Enterprise'},
-  {t:'ED',   n:'Consolidated Edison'},
-  {t:'WEC',  n:'WEC Energy Group'},
-  {t:'PCG',  n:'PG&E'},
-  {t:'AEE',  n:'Ameren'},
-  {t:'DTE',  n:'DTE Energy'},
-  {t:'NRG',  n:'NRG Energy'},
-  {t:'CNP',  n:'CenterPoint Energy'},
-  {t:'ATO',  n:'Atmos Energy'},
-  {t:'EIX',  n:'Edison International'},
-  {t:'PPL',  n:'PPL Corp'},
-  {t:'ES',   n:'Eversource Energy'},
-  {t:'AWK',  n:'American Water Works'},
-  {t:'FE',   n:'FirstEnergy'},
-  {t:'CMS',  n:'CMS Energy'},
-  {t:'NI',   n:'NiSource'},
-  {t:'EVRG', n:'Evergy'},
-  {t:'LNT',  n:'Alliant Energy'},
-  {t:'PNW',  n:'Pinnacle West Capital'},
-  {t:'AES',  n:'AES Corp'},
-];
-
-// ══════════════════════════════════════════════════════
-// 航太國防 ITA ETF 成分股（49支，iShares 2026/06/26）
-// ══════════════════════════════════════════════════════
-const ITA_STOCKS = [
-  {t:'GE',    n:'GE Aerospace'},
-  {t:'RTX',   n:'RTX Corp'},
-  {t:'BA',    n:'Boeing'},
-  {t:'TDG',   n:'TransDigm Group'},
-  {t:'HWM',   n:'Howmet Aerospace'},
-  {t:'GD',    n:'General Dynamics'},
-  {t:'LMT',   n:'Lockheed Martin'},
-  {t:'NOC',   n:'Northrop Grumman'},
-  {t:'LHX',   n:'L3Harris Technologies'},
-  {t:'RKLB',  n:'Rocket Lab'},
-  {t:'AXON',  n:'Axon Enterprise'},
-  {t:'CRS',   n:'Carpenter Technology'},
-  {t:'CW',    n:'Curtiss-Wright'},
-  {t:'ATI',   n:'ATI Inc'},
-  {t:'FTAI',  n:'FTAI Aviation'},
-  {t:'WWD',   n:'Woodward'},
-  {t:'BWXT',  n:'BWX Technologies'},
-  {t:'TXT',   n:'Textron'},
-  {t:'HEI',   n:'HEICO'},
-  {t:'MOG-A', n:'Moog Class A'},
-  {t:'HII',   n:'Huntington Ingalls'},
-  {t:'KTOS',  n:'Kratos Defense'},
-  {t:'HXL',   n:'Hexcel'},
-  {t:'VSEC',  n:'VSE Corp'},
-  {t:'MRCY',  n:'Mercury Systems'},
-  {t:'AIR',   n:'AAR Corp'},
-  {t:'SARO',  n:'StandardAero'},
-  {t:'AVAV',  n:'AeroVironment'},
-  {t:'KRMN',  n:'Karman Holdings'},
-  {t:'DRS',   n:'Leonardo DRS'},
-  {t:'ACHR',  n:'Archer Aviation'},
-  {t:'LOAR',  n:'Loar Holdings'},
-  {t:'ATRO',  n:'Astronics'},
-  {t:'LUNR',  n:'Intuitive Machines'},
-  {t:'DCO',   n:'Ducommun'},
-  {t:'VVX',   n:'V2X'},
-  {t:'RCAT',  n:'Red Cat Holdings'},
-  {t:'RDW',   n:'Redwire'},
-  {t:'CDRE',  n:'Cadre Holdings'},
-  {t:'FLY',   n:'Firefly Aerospace'},
-  {t:'SWBI',  n:'Smith & Wesson Brands'},
-  {t:'NPK',   n:'National Presto Industries'},
-  {t:'RGR',   n:'Sturm Ruger'},
-  {t:'BETA',  n:'Beta Technologies'},
-  {t:'YSS',   n:'York Space Systems'},
-  {t:'VOYG',  n:'Voyager Space'},
-  {t:'SPCE',  n:'Virgin Galactic'},
-];
-
-// ══════════════════════════════════════════════════════
-// 稀土/關鍵礦產 美股掛牌（10支，基準 REMX）
-// ══════════════════════════════════════════════════════
-const REMX_STOCKS = [
-  {t:'MP',   n:'MP Materials'},
-  {t:'ALB',  n:'Albemarle'},
-  {t:'LTHM', n:'Lithium Americas'},
-  {t:'PMET', n:'Patriot Battery Metals'},
-  {t:'SQM',  n:'SQM'},
-  {t:'UUUU', n:'Energy Fuels'},
-  {t:'NXE',  n:'NexGen Energy'},
-  {t:'FCX',  n:'Freeport-McMoRan'},
-  {t:'AA',   n:'Alcoa'},
-  {t:'NVX',  n:'Novonix'},
-];
-
-// ══════════════════════════════════════════════════════
-// 科技創新 成分股（38支，2026/06）
-// AI 基礎設施 + AI 應用 + 低軌衛星/太空 + AI 晶片周邊
-// ══════════════════════════════════════════════════════
-const TECH_STOCKS = [
-  // ── AI 基礎設施 ──
-  {t:'NVDA', n:'NVIDIA'},
-  {t:'MSFT', n:'Microsoft'},
-  {t:'GOOGL',n:'Alphabet'},
-  {t:'META', n:'Meta Platforms'},
-  {t:'AMZN', n:'Amazon'},
-  {t:'AVGO', n:'Broadcom'},
-  {t:'ORCL', n:'Oracle'},
-  {t:'AMD',  n:'Advanced Micro Devices'},
-  {t:'PLTR', n:'Palantir'},
-  {t:'CRWV', n:'CoreWeave'},
-  {t:'NBIS', n:'Nebius'},
-  {t:'ANET', n:'Arista Networks'},
-  // ── AI 應用層 ──
-  {t:'CRM',  n:'Salesforce'},
-  {t:'NOW',  n:'ServiceNow'},
-  {t:'ADBE', n:'Adobe'},
-  {t:'SNOW', n:'Snowflake'},
-  {t:'PATH', n:'UiPath'},
-  {t:'SOUN', n:'SoundHound AI'},
-  // ── 低軌衛星 / 太空 ──
-  {t:'SPCX', n:'SpaceX'},
-  {t:'ASTS', n:'AST SpaceMobile'},
-  {t:'RKLB', n:'Rocket Lab'},
-  {t:'IRDM', n:'Iridium'},
-  {t:'GSAT', n:'Globalstar'},
-  {t:'PL',   n:'Planet Labs'},
-  {t:'LUNR', n:'Intuitive Machines'},
-  {t:'FLY',  n:'Firefly Aerospace'},
-  {t:'RDW',  n:'Redwire'},
-  {t:'BKSY', n:'BlackSky'},
-  // ── AI 晶片周邊 ──
-  {t:'TSM',  n:'TSMC'},
-  {t:'ASML', n:'ASML'},
-  {t:'DELL', n:'Dell Technologies'},
-  {t:'HPE',  n:'HPE'},
-  {t:'SMCI', n:'Super Micro Computer'},
-  {t:'APLD', n:'Applied Digital'},
-  {t:'ARM',  n:'ARM Holdings'},
-  {t:'MRVL', n:'Marvell Technology'},
-  {t:'QCOM', n:'Qualcomm'},
-  {t:'MU',   n:'Micron Technology'},
-];
-
-// ══════════════════════════════════════════════════════
-// 類股設定對照表
-// ══════════════════════════════════════════════════════
-const SECTOR_CONFIG = {
-  soxx: {
-    pool: null,         // 動態用 SOXX
-    benchmark: 'SOXX',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'SOXX',
-    poolLabel: 'SOXX 半導體',
-    displayName: '半導體選股儀表板',
-    logoMark: 'SOX',
-    idx1Sym:'NQ=F', idx1Name:'納斯達克期貨',
-    idx2Sym:'ES=F', idx2Name:'S&P 500 期貨',
-    idx3Sym:'^SOX', idx3Name:'費城半導體指數',
-    sb1Label:'SPY RSI', sb2Label:'SOXX 相對強弱',
-    layer2Text:'個股 vs SOXX vs SPY 相對強弱',
-    showSentiment: true,
-    tableTitle:'📊 SOXX Top 10 選股',
-    footerText:'數據：Yahoo Finance · Finnhub · Claude AI（情緒分析）· SOXX 成分股 2026',
-  },
-  xle: {
-    pool: XLE_STOCKS,
-    benchmark: 'XLE',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'XLE',
-    poolLabel: 'XLE 能源',
-    displayName: '能源選股儀表板',
-    logoMark: 'XLE',
-    idx1Sym:'XOM', idx1Name:'Exxon Mobil',
-    idx2Sym:'CVX', idx2Name:'Chevron',
-    idx3Sym:'COP', idx3Name:'ConocoPhillips',
-    sb1Label:'SPY RSI', sb2Label:'XLE 相對強弱',
-    layer2Text:'個股 vs XLE vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 XLE Top 10 選股',
-    footerText:'數據：Yahoo Finance · XLE 成分股 2026 · 技術面100%',
-  },
-  xlp: {
-    pool: XLP_STOCKS,
-    benchmark: 'XLP',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'XLP',
-    poolLabel: 'XLP 消費必需品',
-    displayName: '消費必需品選股儀表板',
-    logoMark: 'XLP',
-    idx1Sym:'WMT', idx1Name:'Walmart',
-    idx2Sym:'COST', idx2Name:'Costco',
-    idx3Sym:'PG', idx3Name:'Procter & Gamble',
-    sb1Label:'SPY RSI', sb2Label:'XLP 相對強弱',
-    layer2Text:'個股 vs XLP vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 XLP Top 10 選股',
-    footerText:'數據：Yahoo Finance · XLP 成分股 2026 · 技術面100%',
-  },
-  xlv: {
-    pool: XLV_STOCKS,
-    benchmark: 'XLV',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'XLV',
-    poolLabel: 'XLV 醫療保健',
-    displayName: '醫療保健選股儀表板',
-    logoMark: 'XLV',
-    idx1Sym:'LLY', idx1Name:'Eli Lilly',
-    idx2Sym:'JNJ', idx2Name:'J&J',
-    idx3Sym:'ABBV', idx3Name:'AbbVie',
-    sb1Label:'SPY RSI', sb2Label:'XLV 相對強弱',
-    layer2Text:'個股 vs XLV vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 XLV Top 10 選股',
-    footerText:'數據：Yahoo Finance · XLV 成分股 2026 · 技術面100%',
-  },
-  xlu: {
-    pool: XLU_STOCKS,
-    benchmark: 'XLU',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'XLU',
-    poolLabel: 'XLU 公用事業',
-    displayName: '公用事業選股儀表板',
-    logoMark: 'XLU',
-    idx1Sym:'NEE', idx1Name:'NextEra Energy',
-    idx2Sym:'SO', idx2Name:'Southern Company',
-    idx3Sym:'CEG', idx3Name:'Constellation Energy',
-    sb1Label:'SPY RSI', sb2Label:'XLU 相對強弱',
-    layer2Text:'個股 vs XLU vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 XLU Top 10 選股',
-    footerText:'數據：Yahoo Finance · XLU 成分股 2026 · 技術面100%',
-  },
-  tech: {
-    pool: TECH_STOCKS,
-    benchmark: 'QQQ',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'QQQ',
-    poolLabel: 'AI & 低軌衛星',
-    displayName: '科技創新選股儀表板',
-    logoMark: 'AI',
-    idx1Sym:'SPCX', idx1Name:'SpaceX',
-    idx2Sym:'NVDA', idx2Name:'NVIDIA',
-    idx3Sym:'QQQ',  idx3Name:'Nasdaq-100',
-    sb1Label:'QQQ RSI', sb2Label:'QQQ 相對強弱',
-    layer2Text:'個股 vs QQQ vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 AI & 太空 Top 10 選股',
-    footerText:'數據：Yahoo Finance · 科技創新自選池 38支 2026 · 技術面100%',
-  },
-  ita: {
-    pool: ITA_STOCKS,
-    benchmark: 'ITA',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'ITA',
-    poolLabel: 'ITA 航太國防',
-    displayName: '航太國防選股儀表板',
-    logoMark: 'DEF',
-    idx1Sym:'GE',   idx1Name:'GE Aerospace',
-    idx2Sym:'RTX',  idx2Name:'RTX Corp',
-    idx3Sym:'LMT',  idx3Name:'Lockheed Martin',
-    sb1Label:'SPY RSI', sb2Label:'ITA 相對強弱',
-    layer2Text:'個股 vs ITA vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 航太國防 Top 10 選股',
-    footerText:'數據：Yahoo Finance · iShares ITA 49支 2026/06/26 · 技術面100%',
-  },
-  remx: {
-    pool: REMX_STOCKS,
-    benchmark: 'REMX',
-    benchmarkSpy: 'SPY',
-    etfLabel: 'REMX',
-    poolLabel: 'REMX 稀土/關鍵礦產',
-    displayName: '稀土關鍵礦產選股儀表板',
-    logoMark: 'RE',
-    idx1Sym:'REMX', idx1Name:'VanEck Rare Earth ETF',
-    idx2Sym:'MP',   idx2Name:'MP Materials',
-    idx3Sym:'FCX',  idx3Name:'Freeport-McMoRan',
-    sb1Label:'SPY RSI', sb2Label:'REMX 相對強弱',
-    layer2Text:'個股 vs REMX vs SPY 相對強弱',
-    showSentiment: false,
-    tableTitle:'📊 稀土/關鍵礦產 Top 10 選股',
-    footerText:'數據：Yahoo Finance · 稀土關鍵礦產美股精選 10支 2026 · 技術面100%',
-  },
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json',
 };
 
+// ── 快取設定 ──────────────────────────────────────────────
+const CACHE_TTL_QUOTE = 90;  // 股價資料快取秒數（盤中股價變動不快，90秒內查同股票直接吃快取）
+const CACHE_TTL_NEWS  = 300; // 新聞快取秒數（新聞更新頻率低，快取久一點）
 
-// ══════════════════════════════════════════════════════
-// 歷史勝率對照表（2025/1/1–2026/6/25 回測，Top10 進場，+7%/-10% 出場）
-// 黃金類股因勝率全面低於50%已移除
-// ══════════════════════════════════════════════════════
-const WIN_RATE_TABLE = {
-  soxx: [
-    {min:78, max:78, winRate:63.7, lo:54, hi:72, count:102},
-    {min:77, max:77, winRate:68.7, lo:57, hi:78, count:67},
-    {min:76, max:76, winRate:76.6, lo:68, hi:83, count:111},
-    {min:74, max:75, winRate:72.5, lo:59, hi:83, count:51},
-    {min:72, max:73, winRate:79.7, lo:72, hi:86, count:123},
-    {min:66, max:71, winRate:73.7, lo:58, hi:85, count:38},
-  ],
-  xle: [
-    {min:78, max:78, winRate:66.2, lo:58, hi:73, count:154},
-    {min:77, max:77, winRate:54.1, lo:38, hi:69, count:37},
-    {min:76, max:76, winRate:58.0, lo:44, hi:71, count:50},
-    {min:74, max:75, winRate:37.8, lo:25, hi:52, count:45},
-    {min:72, max:73, winRate:66.7, lo:49, hi:81, count:30},
-    {min:70, max:71, winRate:50.0, lo:33, hi:67, count:30},
-    {min:68, max:69, winRate:82.9, lo:67, hi:92, count:35},
-    {min:64, max:67, winRate:56.4, lo:43, hi:69, count:55},
-    {min:57, max:63, winRate:48.5, lo:33, hi:65, count:33},
-  ],
-  xlp: [
-    {min:78, max:78, winRate:58.4, lo:52, hi:65, count:202},
-    {min:77, max:77, winRate:67.6, lo:51, hi:81, count:34},
-    {min:76, max:76, winRate:60.2, lo:49, hi:70, count:83},
-    {min:72, max:75, winRate:67.1, lo:56, hi:77, count:76},
-    {min:63, max:71, winRate:80.0, lo:64, hi:90, count:35},
-  ],
-  xlv: [
-    {min:78, max:78, winRate:63.7, lo:58, hi:69, count:259},
-    {min:76, max:77, winRate:82.9, lo:75, hi:89, count:123},
-    {min:68, max:75, winRate:63.9, lo:48, hi:78, count:36},
-  ],
-  xlu: [
-    {min:78, max:78, winRate:60.6, lo:51, hi:70, count:99},
-    {min:77, max:77, winRate:62.8, lo:48, hi:76, count:43},
-    {min:76, max:76, winRate:56.1, lo:44, hi:67, count:66},
-    {min:72, max:75, winRate:74.5, lo:60, hi:85, count:47},
-    {min:69, max:71, winRate:59.6, lo:45, hi:72, count:47},
-    {min:66, max:68, winRate:90.6, lo:76, hi:97, count:32},
-    {min:63, max:65, winRate:76.9, lo:62, hi:87, count:39},
-    {min:57, max:62, winRate:78.8, lo:62, hi:89, count:33},
-  ],
-  tech: [
-    {min:78, max:78, winRate:67.3, lo:58, hi:75, count:113},
-    {min:77, max:77, winRate:68.4, lo:57, hi:78, count:79},
-    {min:76, max:76, winRate:61.8, lo:52, hi:70, count:110},
-    {min:74, max:75, winRate:58.4, lo:47, hi:69, count:77},
-    {min:72, max:73, winRate:51.8, lo:41, hi:62, count:85},
-    {min:63, max:71, winRate:41.9, lo:26, hi:59, count:31},
-  ],
-  ita: [
-    {min:78, max:78, winRate:58.3, lo:52, hi:64, count:247},
-    {min:77, max:77, winRate:63.8, lo:52, hi:74, count:69},
-    {min:76, max:76, winRate:50.0, lo:39, hi:61, count:72},
-    {min:74, max:75, winRate:63.6, lo:47, hi:78, count:33},
-    {min:68, max:73, winRate:71.4, lo:58, hi:82, count:49},
-  ],
-  remx: [
-    {min:77, max:78, winRate:64.3, lo:49, hi:77, count:42},
-    {min:74, max:76, winRate:40.0, lo:26, hi:55, count:40},
-    {min:71, max:73, winRate:51.2, lo:36, hi:66, count:41},
-    {min:68, max:70, winRate:44.2, lo:30, hi:59, count:43},
-    {min:64, max:67, winRate:44.4, lo:30, hi:60, count:36},
-    {min:62, max:63, winRate:56.7, lo:39, hi:73, count:30},
-    {min:59, max:61, winRate:48.5, lo:33, hi:65, count:33},
-    {min:56, max:58, winRate:67.5, lo:52, hi:80, count:40},
-    {min:53, max:55, winRate:45.5, lo:30, hi:62, count:33},
-    {min:51, max:52, winRate:51.1, lo:37, hi:65, count:45},
-    {min:48, max:50, winRate:64.5, lo:47, hi:79, count:31},
-    {min:43, max:47, winRate:55.0, lo:34, hi:74, count:20},
-  ],
+export default {
+  async fetch(request, env, ctx) {
+    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
+
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    try {
+      if (path === '/health') {
+        return ok({ status: 'ok', time: new Date().toISOString() });
+      }
+
+      if (path === '/' || path === '') {
+        const ticker = url.searchParams.get('t');
+        if (!ticker) return err('缺少 ?t=TICKER', 400);
+        return await cachedProxyYahoo(ticker, request, ctx);
+      }
+      if (path === '/news') {
+        const ticker = url.searchParams.get('t');
+        if (!ticker) return err('缺少 ?t=TICKER', 400);
+        return await cachedProxyFinnhubNews(ticker, request, ctx);
+      }
+      if (path === '/sentiment') {
+        if (request.method !== 'POST') return err('需要 POST', 405);
+        const body = await request.json();
+        return await cachedProxyClaude(body, env, ctx);
+      }
+      return err('路由不存在', 404);
+    } catch (e) {
+      return err(`伺服器錯誤：${e.message}`, 500);
+    }
+  }
 };
 
-// 查詢勝率：依類股與評分找對應區間
-function lookupWinRate(sector, score){
-  const table = WIN_RATE_TABLE[sector];
-  if(!table) return null;
-  for(const r of table){
-    if(score >= r.min && score <= r.max) return r;
-  }
-  return null;
-}
+// ── 帶快取的 Yahoo Finance 代理 ───────────────────────────
+async function cachedProxyYahoo(ticker, request, ctx) {
+  const cache = caches.default;
+  // 用 ticker 組一個固定的快取 key（跟原始 request URL 脫鉤，避免 query string 順序差異造成快取失效）
+  const cacheKey = new Request(`https://cache.internal/quote?t=${encodeURIComponent(ticker)}`, { method: 'GET' });
 
-// ══════════════════════════════════════════════════════
-// 類股管理（取代舊的模式管理）
-// ══════════════════════════════════════════════════════
-let currentSector = 'soxx';
-let isRunning = false;  // 防重入鎖
-
-function switchSector(sector) {
-  if (currentSector === sector) return;
-  if (isRunning) return;
-  currentSector = sector;
-  // 更新按鈕樣式
-  ['soxx','xle','xlp','xlv','xlu'].forEach(s => {
-    const btn = document.getElementById('sectorBtn'+s.toUpperCase().replace('SOXX','SOXX'));
-    if(btn) btn.classList.toggle('active', s === sector);
-  });
-  // 修正 SOXX 的 id 特殊處理
-  document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
-  const activeBtn = document.getElementById('sectorBtn'+sector.toUpperCase());
-  if(activeBtn) activeBtn.classList.add('active');
-  // 套用 UI
-  applySectorUI(sector);
-  // 清空結果，回到等待狀態
-  ['errCard','newsCard','strengthCard','tableCard','progressCard'].forEach(id => {
-    document.getElementById(id).classList.add('hidden');
-  });
-  document.getElementById('idleCard').classList.remove('hidden');
-  // 重置指數顯示
-  for(const id of ['nqPrice','esPrice','soxPrice']){
-    document.getElementById(id).textContent='—';
-    document.getElementById(id).className='fut-price neu';
-  }
-  for(const id of ['nqChg','esChg','soxChg']){
-    document.getElementById(id).textContent='—';
-    document.getElementById(id).className='fut-chg neu';
-  }
-  document.getElementById('mktCount').textContent='—';
-  document.getElementById('strengthScore').textContent='—';
-  document.getElementById('strengthScore').style.color='';
-  document.getElementById('strengthLabel').textContent='—';
-  document.getElementById('strengthLabel').style.color='';
-  document.getElementById('runBtn').innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg> 開始分析`;
-}
-
-function applySectorUI(sector) {
-  const cfg = SECTOR_CONFIG[sector];
-  if(!cfg) return;
-  document.getElementById('logoMark').textContent  = cfg.logoMark;
-  document.getElementById('logoText').textContent  = cfg.displayName;
-  document.getElementById('idx1Sym').textContent    = cfg.idx1Sym;
-  document.getElementById('idx1Name').textContent   = cfg.idx1Name;
-  document.getElementById('idx2Sym').textContent    = cfg.idx2Sym;
-  document.getElementById('idx2Name').textContent   = cfg.idx2Name;
-  document.getElementById('idx3Sym').textContent    = cfg.idx3Sym;
-  document.getElementById('idx3Name').textContent   = cfg.idx3Name;
-  document.getElementById('mktPoolLabel').textContent = cfg.poolLabel;
-  document.getElementById('sb1Label').textContent   = cfg.sb1Label;
-  document.getElementById('sb2Label').textContent   = cfg.sb2Label;
-  document.getElementById('modelLayer2Text').textContent = cfg.layer2Text;
-  document.getElementById('tableTitle').textContent = cfg.tableTitle;
-  document.getElementById('footerText').textContent = cfg.footerText;
-  if(cfg.showSentiment){
-    document.getElementById('modelLayer4').classList.remove('hidden');
-    document.getElementById('modelDivider4').classList.remove('hidden');
-    document.getElementById('newsCard').classList.remove('hidden');
-  } else {
-    document.getElementById('modelLayer4').classList.add('hidden');
-    document.getElementById('modelDivider4').classList.add('hidden');
-    document.getElementById('newsCard').classList.add('hidden');
-  }
-  const idleTitle = document.getElementById('idleTitle');
-  if(idleTitle) idleTitle.textContent = `目前選擇：${cfg.poolLabel}，按「開始分析」開始`;
-}
-
-// ══════════════════════════════════════════════════════
-// 技術指標
-// ══════════════════════════════════════════════════════
-function rsi(c,p=14){
-  if(c.length<p+1) return 50;
-  let g=0,l=0;
-  for(let i=c.length-p;i<c.length;i++){const d=c[i]-c[i-1];d>0?g+=d:l-=d;}
-  if(l===0) return 99;
-  return 100-(100/(1+(g/p)/(l/p)));
-}
-function ema(arr,p){
-  const k=2/(p+1);let e=arr[0];
-  for(let i=1;i<arr.length;i++) e=arr[i]*k+e*(1-k);
-  return e;
-}
-function macd(c){
-  if(c.length<26) return 0;
-  return ema(c.slice(-12),12)-ema(c.slice(-26),26);
-}
-function ma(c,p){
-  const s=c.slice(-Math.min(p,c.length));
-  return s.reduce((a,b)=>a+b,0)/s.length;
-}
-function atr(h,l,c,p=14){
-  if(h.length<p+1) return(h.at(-1)-l.at(-1));
-  const trs=[];
-  for(let i=1;i<h.length;i++){
-    trs.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));
-  }
-  return trs.slice(-p).reduce((a,b)=>a+b,0)/p;
-}
-function adx(h,l,c,p=14){
-  if(h.length<p*2) return 25;
-  const pdm=[],mdm=[],tr=[];
-  for(let i=1;i<h.length;i++){
-    const up=h[i]-h[i-1],dn=l[i-1]-l[i];
-    pdm.push(up>dn&&up>0?up:0);
-    mdm.push(dn>up&&dn>0?dn:0);
-    tr.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));
-  }
-  const atrV=tr.slice(-p).reduce((a,b)=>a+b,0)/p;
-  if(atrV===0) return 25;
-  const pdi=100*(pdm.slice(-p).reduce((a,b)=>a+b,0)/p)/atrV;
-  const mdi=100*(mdm.slice(-p).reduce((a,b)=>a+b,0)/p)/atrV;
-  return pdi+mdi===0?0:100*Math.abs(pdi-mdi)/(pdi+mdi);
-}
-function obvTrend(c,v){
-  if(c.length<10) return 0;
-  let obv=0;const arr=[];
-  for(let i=1;i<c.length;i++){
-    obv+=c[i]>c[i-1]?v[i]:c[i]<c[i-1]?-v[i]:0;
-    arr.push(obv);
-  }
-  const r=arr.slice(-5).reduce((a,b)=>a+b,0)/5;
-  const o=arr.slice(-20,-5).reduce((a,b)=>a+b,0)/15;
-  return r-o;
-}
-function boll(c,p=20){
-  if(c.length<p) return{upper:c.at(-1)*1.05,mid:c.at(-1),lower:c.at(-1)*0.95,std:c.at(-1)*0.025};
-  const sl=c.slice(-p),mid=sl.reduce((a,b)=>a+b,0)/p;
-  const std=Math.sqrt(sl.reduce((a,b)=>a+(b-mid)**2,0)/p);
-  return{upper:mid+2*std,mid,lower:mid-2*std,std};
-}
-function hv(c,p=20){
-  if(c.length<p+1) return 0.2;
-  const rets=[];
-  for(let i=c.length-p;i<c.length;i++) rets.push(Math.log(c[i]/c[i-1]));
-  const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
-  return Math.sqrt(rets.reduce((a,b)=>a+(b-mean)**2,0)/rets.length*252);
-}
-function rs(sc,bc){
-  if(!bc||bc.length<2||!sc||sc.length<2) return 1;
-  return(sc.at(-1)/sc[0])/(bc.at(-1)/bc[0]);
-}
-
-// ══════════════════════════════════════════════════════
-// 市場強度（0–100）= 建議投入比例
-// ══════════════════════════════════════════════════════
-function calcMarketStrength(spyC,soxxC){
-  // 因子1：SPY RSI（25分）
-  const spyRSI=rsi(spyC);
-  let f1=0;
-  if(spyRSI>=45&&spyRSI<=65) f1=25;
-  else if(spyRSI>=35&&spyRSI<45) f1=18;
-  else if(spyRSI>65&&spyRSI<=75) f1=18;
-  else if(spyRSI<35) f1=10;
-  else f1=8;
-
-  // 因子2：SOXX 相對強弱（25分）
-  const soxxRS=rs(soxxC.slice(-20),spyC.slice(-20));
-  let f2=0;
-  if(soxxRS>1.05) f2=25;
-  else if(soxxRS>1.02) f2=20;
-  else if(soxxRS>1.0) f2=15;
-  else if(soxxRS>0.97) f2=10;
-  else f2=5;
-
-  // 因子3：均線多頭排列（20分）
-  const price=spyC.at(-1);
-  const ma20v=ma(spyC,20),ma50v=ma(spyC,50),ma200v=ma(spyC,Math.min(200,spyC.length));
-  const aboveMAs=(price>ma20v?1:0)+(price>ma50v?1:0)+(price>ma200v?1:0);
-  const f3=Math.round(aboveMAs/3*20);
-
-  // 因子4：歷史波動率反向（15分）
-  const hvV=hv(spyC);
-  let f4=0;
-  if(hvV<0.10) f4=15;
-  else if(hvV<0.15) f4=12;
-  else if(hvV<0.20) f4=9;
-  else if(hvV<0.30) f4=6;
-  else f4=3;
-
-  // 因子5：20日動能（15分）
-  const mom=(spyC.at(-1)/spyC.at(-20)-1)*100;
-  let f5=0;
-  if(mom>5) f5=15;
-  else if(mom>3) f5=12;
-  else if(mom>1) f5=9;
-  else if(mom>-1) f5=6;
-  else if(mom>-3) f5=3;
-  else f5=0;
-
-  const total=Math.round(f1+f2+f3+f4+f5);
-  return{
-    total:Math.min(99,Math.max(1,total)),
-    f1,f2,f3,f4,f5,
-    spyRSI,soxxRS,hvV,mom,aboveMAs
-  };
-}
-
-// ══════════════════════════════════════════════════════
-// 個股評分（四層，目標獲利 7–35%）
-// ══════════════════════════════════════════════════════
-function scoreStock(closes,volumes,highs,lows,soxxC,spyC){
-  const price=closes.at(-1);
-
-  // 層次1：RSI/MACD/均線/布林
-  const rsiV=rsi(closes);
-  const macdV=macd(closes);
-  const ma20v=ma(closes,20),ma50v=ma(closes,50);
-  const aboveMa=(price>ma20v?1:0)+(price>ma50v?1:0);
-  const bollV=boll(closes);
-  const bollPct=(price-bollV.lower)/(bollV.upper-bollV.lower);
-
-  // 層次2：相對強弱
-  const rsSox=rs(closes.slice(-20),soxxC.slice(-20));
-  const rsSpy=rs(closes.slice(-20),spyC.slice(-20));
-  const rsAvg=(rsSox+rsSpy)/2;
-
-  // 層次3：ATR/ADX/OBV/波動率
-  const atrV=atr(highs,lows,closes);
-  const adxV=adx(highs,lows,closes);
-  const obvV=obvTrend(closes,volumes);
-  const hvV=hv(closes);
-
-  // 評分（滿分100，但先不含情緒面）
-  let score=25;
-  // 層次1 RSI (18分)
-  if(rsiV>=35&&rsiV<=55) score+=18;
-  else if(rsiV<35) score+=14;
-  else if(rsiV<=65) score+=10;
-  else if(rsiV<=75) score+=4;
-  // 層次1 MACD (12分)
-  score+=macdV>0?12:2;
-  // 層次1 均線 (8分)
-  score+=aboveMa*4;
-  // 層次1 布林 (5分)
-  if(bollPct<0.3) score+=5;
-  else if(bollPct<0.5) score+=3;
-  // 層次2 相對強弱 (17分)
-  if(rsAvg>1.05) score+=17;
-  else if(rsAvg>1.02) score+=13;
-  else if(rsAvg>1.0) score+=9;
-  else if(rsAvg>0.97) score+=5;
-  // 層次3 ADX (12分)
-  if(adxV>30) score+=12;
-  else if(adxV>20) score+=8;
-  else if(adxV>15) score+=4;
-  // 層次3 OBV (8分)
-  score+=obvV>0?8:1;
-  // 波動率懲罰
-  if(hvV>0.7) score-=8;
-  else if(hvV>0.5) score-=4;
-
-  score=Math.max(1,Math.min(85,Math.round(score))); // 技術面最高85，留15給情緒
-
-  // 目標價：ATR×2.5 和布林上軌取較大值，不超過 +35%
-  // 強勢股已突破布林上軌時，bollTarget < price，此時完全用 atrTarget
-  const atrTarget=price+atrV*2.5;
-  const bollTarget=bollV.upper>price?bollV.upper:price; // 布林上軌低於現價時不往下拉
-  const rawTarget=Math.max(atrTarget,bollTarget);
-  const maxTarget=price*1.35;
-  const minTarget=price*1.05; // 最低目標空間從 7% 降到 5%，讓更多股能進入
-  const target=+Math.min(maxTarget,Math.max(minTarget,rawTarget)).toFixed(2);
-  const upside=+((target-price)/price*100).toFixed(1);
-
-  // 買入區間
-  const buyLow=+(price*0.995).toFixed(2);
-  const buyHigh=+(price*1.005).toFixed(2);
-
-  // 指標燈
-  const rsiDot=rsiV<40?'g':rsiV<65?'g':rsiV<75?'y':'r';
-  const macdDot=macdV>0?'g':'r';
-  const maDot=aboveMa>=2?'g':aboveMa>=1?'y':'r';
-  const adxDot=adxV>25?'g':adxV>15?'y':'r';
-  const obvDot=obvV>0?'g':'r';
-
-  let sig='watch',sigLbl='觀察';
-  if(score>=72){sig='buy';sigLbl='強力買入';}
-  else if(score>=58){sig='buy';sigLbl='建議買入';}
-
-  return{score,rsiV,macdV,adxV,obvV,rsAvg,hvV,atrV,
-    rsiDot,macdDot,maDot,adxDot,obvDot,
-    sig,sigLbl,target,upside,buyLow,buyHigh};
-}
-
-// ══════════════════════════════════════════════════════
-// Finnhub 新聞（透過 Worker）
-// 同時抓：個股新聞 + 總體市場新聞
-// ══════════════════════════════════════════════════════
-async function fetchNews(tickers){
-  const allNews=[];
-
-  // 1. 個股新聞（前8支）
-  for(const t of tickers.slice(0,8)){
-    try{
-      const res=await fetch(`${WORKER}/news?t=${t}`,{signal:AbortSignal.timeout(8000)});
-      if(!res.ok) continue;
-      const data=await res.json();
-      if(data.news&&data.news.length>0){
-        data.news.slice(0,2).forEach(n=>allNews.push({...n,ticker:t}));
-      }
-    }catch(e){console.warn('news',t,e.message);}
-    await delay(100);
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    const res = new Response(cached.body, cached);
+    res.headers.set('X-Cache', 'HIT');
+    return res;
   }
 
-  // 2. 總體市場新聞（聯準會、貿易政策、總經）
-  try{
-    const res=await fetch(`${WORKER}/news?t=GENERAL`,{signal:AbortSignal.timeout(8000)});
-    if(res.ok){
-      const data=await res.json();
-      if(data.news&&data.news.length>0){
-        data.news.slice(0,4).forEach(n=>allNews.push({...n,ticker:'總經'}));
-      }
+  const res = await proxyYahoo(ticker);
+  // 複製一份回應存進快取（Response body 只能讀一次，所以要 clone）
+  const resToCache = res.clone();
+  resToCache.headers.set('Cache-Control', `public, max-age=${CACHE_TTL_QUOTE}`);
+  ctx.waitUntil(cache.put(cacheKey, resToCache));
+
+  res.headers.set('X-Cache', 'MISS');
+  return res;
+}
+
+// ── 帶快取的 Finnhub 新聞代理 ──────────────────────────────
+async function cachedProxyFinnhubNews(ticker, request, ctx) {
+  const cache = caches.default;
+  const cacheKey = new Request(`https://cache.internal/news?t=${encodeURIComponent(ticker)}`, { method: 'GET' });
+
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    const res = new Response(cached.body, cached);
+    res.headers.set('X-Cache', 'HIT');
+    return res;
+  }
+
+  const res = await proxyFinnhubNews(ticker);
+  const resToCache = res.clone();
+  resToCache.headers.set('Cache-Control', `public, max-age=${CACHE_TTL_NEWS}`);
+  ctx.waitUntil(cache.put(cacheKey, resToCache));
+
+  res.headers.set('X-Cache', 'MISS');
+  return res;
+}
+
+// ── Yahoo Finance ──────────────────────────────────────────
+async function proxyYahoo(ticker) {
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=6mo&includePrePost=false`;
+  const res = await fetch(yahooUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'application/json',
+      'Referer': 'https://finance.yahoo.com/',
     }
-  }catch(e){console.warn('general news',e.message);}
-
-  return allNews;
-}
-
-// ══════════════════════════════════════════════════════
-// Claude 情緒分析（透過 Worker，使用環境變數 API Key）
-// ══════════════════════════════════════════════════════
-async function analyzeSentiment(newsArr){
-  if(newsArr.length===0) return[];
-  const headlines=newsArr.map((n,i)=>`${i+1}. [${n.ticker}] ${n.headline}`).join('\n');
-  const prompt=`你是資深金融分析師，專精半導體產業與總體經濟。分析以下新聞標題，輸出情緒評分。
-
-標注為「總經」的是總體經濟新聞（聯準會、貿易政策等）。
-
-${headlines}
-
-輸出純 JSON，不要有多餘文字：
-{"results":[{
-  "index":1,
-  "polarity":0.6,
-  "impact":"high",
-  "summary":"繁體中文摘要25字內"
-}]}
-
-規則：
-- polarity範圍-1到1，負面略重（×1.2）
-- impact只能high/medium/low
-- summary必須是繁體中文`;
-
-  try{
-    const res=await fetch(`${WORKER}/sentiment`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-6',
-        max_tokens:1000,
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-    if(!res.ok) throw new Error(`sentiment ${res.status}`);
-    const d=await res.json();
-    const raw=d.content.map(b=>b.text||'').join('');
-    let parsed;
-    try{parsed=JSON.parse(raw.trim());}
-    catch(e){const m=raw.match(/\{[\s\S]*\}/);parsed=m?JSON.parse(m[0]):{results:[]};}
-    return newsArr.map((n,i)=>{
-      const r=parsed.results?.find(x=>x.index===i+1)||{
-        polarity:0,impact:'low',summary:n.headline||''
-      };
-      return{...n,...r};
-    });
-  }catch(e){
-    return newsArr.map(n=>({...n,polarity:0,impact:'low',summary:n.headline||''}));
-  }
-}
-
-// 情緒分數轉換（學術方法）
-function sentimentScore(news){
-  if(!news||news.length===0) return 0;
-  const iw={high:1.5,medium:1.0,low:0.5};
-  let ws=0,tw=0;
-  const now=Date.now()/1000;
-  news.forEach(n=>{
-    const age=(now-(n.datetime||now))/3600;
-    const td=Math.exp(-age/12);
-    const w=iw[n.impact]||1.0;
-    const pa=n.polarity<0?n.polarity*1.2:n.polarity; // 負面略重
-    ws+=pa*w*td; tw+=w*td;
   });
-  return tw>0?Math.round((ws/tw)*15):0; // 轉換到 ±15
+  if (!res.ok) {
+    // 備用端點
+    const res2 = await fetch(
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=6mo`,
+      { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.yahoo.com/' } }
+    );
+    if (!res2.ok) throw new Error(`Yahoo ${res2.status}`);
+    return ok(await res2.json());
+  }
+  return ok(await res.json());
 }
 
-// ══════════════════════════════════════════════════════
-// API 呼叫
-// ══════════════════════════════════════════════════════
-async function fetchQuote(ticker){
-  const res=await fetch(`${WORKER}/?t=${encodeURIComponent(ticker)}`,{signal:AbortSignal.timeout(12000)});
-  if(!res.ok) throw new Error(`Worker ${res.status}`);
-  return res.json();
-}
-function parseChart(data){
-  const r=data?.chart?.result?.[0];
-  if(!r) return null;
-  const q=r.indicators?.quote?.[0];
-  if(!q) return null;
-  const ts=r.timestamp||[];
-  const rawCloses=q.close||[];
-  // 過濾時保留 timestamp 對應關係，才能正確判斷「今天」是哪一筆
-  const idx=[];
-  for(let i=0;i<rawCloses.length;i++) if(rawCloses[i]!=null) idx.push(i);
-  if(idx.length<20) return null; // 台股資料有時不足30筆，放寬至20
-  const closes=idx.map(i=>rawCloses[i]);
-  const volumes=idx.map(i=>(q.volume||[])[i]).filter(x=>x!=null);
-  const highs=idx.map(i=>(q.high||[])[i]).filter(x=>x!=null);
-  const lows=idx.map(i=>(q.low||[])[i]).filter(x=>x!=null);
+// ── Finnhub 新聞 ───────────────────────────────────────────
+async function proxyFinnhubNews(ticker) {
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
-  // 判斷日線最後一筆是否為「今天」：比對日期字串（用 UTC 日期避免時區誤差累積）
-  const lastTs=ts[idx.at(-1)];
-  const lastDateStr=lastTs?new Date(lastTs*1000).toISOString().slice(0,10):null;
-  const todayStr=new Date().toISOString().slice(0,10);
-  const lastIsToday=lastDateStr===todayStr;
-
-  // 現價與今日漲跌完全只用日線時間序列計算，不採用不穩定的 meta.regularMarketPrice 快照欄位
-  let price,prev,todayChg;
-  if(lastIsToday&&closes.length>=2){
-    // 日線最後一筆已是今天（盤中或已收盤）：現價=今天，昨收=前一筆
-    price=closes.at(-1);
-    prev=closes.at(-2);
-    todayChg=prev?(price-prev)/prev*100:0;
-  } else {
-    // 日線最後一筆不是今天（盤前尚未產生今日K棒，或週末/假日）
-    const lastClose=closes.at(-1);
-    const prevClose=closes.length>=2?closes.at(-2):lastClose;
-    let liveMP=r.meta.regularMarketPrice;
-    const sane=liveMP!=null&&lastClose>0&&Math.abs(liveMP-lastClose)/lastClose<=0.30;
-    if(sane&&Math.abs(liveMP-lastClose)/lastClose>0.0001){
-      // 即時報價與昨收有差異（盤中/盤前有成交）：現價=即時報價，基準=昨收
-      price=liveMP;
-      prev=lastClose;
-    } else {
-      // 即時報價等同昨收（盤前未成交、休市）：顯示最後一個交易日的漲跌
-      price=lastClose;
-      prev=prevClose;
-    }
-    todayChg=prev?(price-prev)/prev*100:0;
+  // 總體市場新聞（聯準會、貿易政策、總經）
+  if (ticker === 'GENERAL') {
+    const url = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) throw new Error(`Finnhub general ${res.status}`);
+    const data = await res.json();
+    const news = Array.isArray(data) ? data.slice(0, 5).map(n => ({
+      headline: n.headline,
+      datetime: n.datetime,
+      source: n.source,
+    })) : [];
+    return ok({ ticker: 'GENERAL', news });
   }
 
-  // 過去30日：用 closes.at(-21) 是約 20 個交易日前（排除今日）
-  const ret30=closes.length>=21?(price/closes.at(-21)-1)*100:null;
-  return{closes,volumes,highs,lows,price,prev,todayChg,ret30};
+  // 個股新聞
+  const url = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yesterday}&to=${today}&token=${FINNHUB_KEY}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!res.ok) throw new Error(`Finnhub ${res.status}`);
+  const data = await res.json();
+  const news = Array.isArray(data) ? data.slice(0, 3).map(n => ({
+    headline: n.headline,
+    datetime: n.datetime,
+    source: n.source,
+  })) : [];
+  return ok({ ticker, news });
 }
 
-// ══════════════════════════════════════════════════════
-// UI
-// ══════════════════════════════════════════════════════
-function setP(pct,msg){
-  document.getElementById('progFill').style.width=pct+'%';
-  document.getElementById('progPct').textContent=pct+'%';
-  document.getElementById('progSub').textContent=msg;
-}
-function show(id){document.getElementById(id).classList.remove('hidden');}
-function hide(id){document.getElementById(id).classList.add('hidden');}
-function fmtChg(v){return(v>=0?'+':'')+v.toFixed(2)+'%';}
-function delay(ms){return new Promise(r=>setTimeout(r,ms));}
-
-// 強度顏色
-// ── 從快取直接渲染（跳過所有運算）──────────────────────────
-function renderFromCache(cached, cfg){
-  const {top10, mktStr, newsWithSent, isSentiment, results_length} = cached;
-  const sc=strengthColor(mktStr.total);
-  document.getElementById('strengthScore').textContent=mktStr.total;
-  document.getElementById('strengthScore').style.color=sc;
-  document.getElementById('strengthLabel').textContent=strengthLabel(mktStr.total);
-  document.getElementById('strengthLabel').style.color=sc;
-  const factors=[
-    {val:`RSI ${mktStr.spyRSI.toFixed(0)}`,score:mktStr.f1,max:25},
-    {val:`RS ${mktStr.soxxRS.toFixed(2)}`,score:mktStr.f2,max:25},
-    {val:`${mktStr.aboveMAs}/3 均線`,score:mktStr.f3,max:20},
-    {val:`HV ${(mktStr.hvV*100).toFixed(1)}%`,score:mktStr.f4,max:15},
-    {val:`動能 ${mktStr.mom>=0?"+":""}${mktStr.mom.toFixed(1)}%`,score:mktStr.f5,max:15},
-  ];
-  factors.forEach((f,i)=>{
-    const n=i+1;
-    document.getElementById(`sb${n}Val`).textContent=`${f.val} (${f.score}/${f.max})`;
-    document.getElementById(`sb${n}Bar`).style.width=(f.score/f.max*100)+"%";
-    document.getElementById(`sb${n}Bar`).style.background=strengthColor(f.score/f.max*100);
-  });
-  show("strengthCard"); show("modelBar");
-  if(isSentiment&&newsWithSent&&newsWithSent.length>0){
-    const newsList=document.getElementById("newsList");
-    newsList.innerHTML="";
-    const generalNews=newsWithSent.filter(n=>n.ticker==="總經");
-    const stockNews=newsWithSent.filter(n=>n.ticker!=="總經"&&Math.abs(n.polarity||0)>0.2);
-    if(generalNews.length>0){
-      newsList.innerHTML+=`<div style="padding:8px 16px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);">總體經濟</div>`;
-      generalNews.forEach(n=>{
-        const icon=n.polarity>0.1?"▲":n.polarity<-0.1?"▼":"—";
-        const iconColor=n.polarity>0.1?"var(--up)":n.polarity<-0.1?"var(--dn)":"var(--text3)";
-        const commentary=n.commentary?`<div style="font-size:11px;color:var(--accent2);margin-top:4px;">📌 ${n.commentary}</div>`:"";
-        newsList.innerHTML+=`<div class="news-item"><span class="news-icon" style="color:${iconColor};font-size:12px;font-weight:700;">${icon}</span><div class="news-body"><div class="news-text">${n.summary||n.headline?.slice(0,60)}</div>${commentary}<div class="news-meta"><span style="color:var(--accent2)">總經</span> · 極性 ${n.polarity>=0?"+":""}${n.polarity?.toFixed(2)} · ${n.impact} impact</div></div><span class="ntag ${n.polarity>0.1?"ntag-pos":n.polarity<-0.1?"ntag-neg":"ntag-neu"}">${n.polarity>0.1?"利多":n.polarity<-0.1?"利空":"中性"}</span></div>`;
-      });
-    }
-    if(stockNews.length>0){
-      newsList.innerHTML+=`<div style="padding:8px 16px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);border-top:1px solid var(--border);">個股消息</div>`;
-      stockNews.forEach(n=>{
-        const icon=n.polarity>0.2?"▲":"▼";
-        const iconColor=n.polarity>0.2?"var(--up)":"var(--dn)";
-        newsList.innerHTML+=`<div class="news-item"><span class="news-icon" style="color:${iconColor};font-size:12px;font-weight:700;">${icon}</span><div class="news-body"><div class="news-text">${n.summary||n.headline?.slice(0,60)}</div><div class="news-meta"><span style="color:var(--accent2)">${n.ticker}</span> · 極性 ${n.polarity>=0?"+":""}${n.polarity?.toFixed(2)} · ${n.impact} impact</div></div><span class="ntag ${n.polarity>0.2?"ntag-pos":"ntag-neg"}">${n.polarity>0.2?"利多":"利空"}</span></div>`;
-      });
-    }
-    document.getElementById("newsMeta").textContent=`總經 ${generalNews.length} 則 · 個股 ${stockNews.length} 則 · 快取`;
-    show("newsCard");
-  }
-  document.getElementById("mktCount").textContent=results_length;
-  const tbody=document.getElementById("stockBody");
-  tbody.innerHTML="";
-  top10.forEach((s,i)=>{
-    const r30Cls=s.ret30!=null?(s.ret30>=0?"up":"down"):"neu";
-    const tdCls=s.todayChg>=0?"up":"down";
-    const barClr=s.score>=75?"var(--green)":s.score>=60?"var(--accent)":"var(--yellow)";
-    const rankCls=i<3?"rank top3":"rank";
-    const sigCls=s.sig==="buy"?"sig-buy":"sig-watch";
-    tbody.innerHTML+=`<tr><td><div class="${rankCls}">${i+1}</div></td><td><div class="sym">${s.ticker}</div><div class="co">${s.name}</div></td><td class="r"><div class="pv">$${s.price.toFixed(2)}</div></td><td class="r"><div class="pv ${tdCls}" style="font-size:13px;">${fmtChg(s.todayChg)}</div></td><td class="r"><div class="pv ${r30Cls}" style="font-size:13px;">${s.ret30!=null?fmtChg(s.ret30):"—"}</div></td><td class="r"><div class="buy-r">$${s.buyLow}–$${s.buyHigh}</div></td><td class="r"><div class="tgt">$${s.target}</div><div class="upside">+${s.upside}%</div></td><td class="c"><div class="dots"><div class="dot d${s.rsiDot}"></div><div class="dot d${s.macdDot}"></div><div class="dot d${s.maDot}"></div><div class="dot d${s.adxDot}"></div><div class="dot d${s.obvDot}"></div></div></td><td><div class="sw"><div class="sb"><div class="sf" style="width:${s.score}%;background:${barClr};"></div></div><span class="sn" style="color:${barClr};">${s.score}</span></div></td><td class="r">${(()=>{const wr=lookupWinRate(currentSector,s.score);if(!wr)return '<span style="color:var(--text3)">—</span>';const cls=wr.winRate>=65?'up':wr.winRate>=50?'neu':'dn';const bg=wr.count<10?'background:rgba(150,150,150,0.15);border-radius:4px;padding:2px 5px;':wr.count<30?'background:rgba(247,195,92,0.12);border-radius:4px;padding:2px 5px;':'';const note=wr.count<10?'樣本不足':`${wr.count}筆`;return `<div style="${bg}display:inline-block;"><span class="${cls}" style="font-family:var(--mono);font-weight:600;">${wr.winRate}%</span><div style="font-size:9px;color:var(--text3);">${wr.lo}–${wr.hi}% · ${note}</div></div>`;})()}</td><td class="c"><span class="sig ${sigCls}">${s.sigLbl}</span></td></tr>`;
-  });
-  document.getElementById("tableMeta").textContent=isSentiment
-    ?`從 ${results_length} 支正報酬標的中篩選 · 技術面80% + 情緒面20%（快取）`
-    :`從 ${results_length} 支正報酬標的中篩選 · 技術面100%（快取）`;
-  show("tableCard");
-}
-
-function strengthColor(v){
-  if(v>=70) return 'var(--green)';
-  if(v>=50) return 'var(--accent)';
-  if(v>=35) return 'var(--yellow)';
-  return 'var(--red)';
-}
-function strengthLabel(v){
-  if(v>=75) return '極強多頭 🚀';
-  if(v>=60) return '偏強多頭 📈';
-  if(v>=45) return '中性震盪 ➡️';
-  if(v>=30) return '偏弱空頭 📉';
-  return '熊市警戒 ⚠️';
-}
-
-// ══════════════════════════════════════════════════════
-// 時鐘
-// ══════════════════════════════════════════════════════
-function updateClock(){
-  const tw=new Date();
-  document.getElementById('twTime').textContent=
-    tw.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const us=new Date(tw.toLocaleString('en-US',{timeZone:'America/New_York'}));
-  const h=us.getHours(),m=us.getMinutes();
-  document.getElementById('usTime').textContent=
-    `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`;
-  let sess='盤後';
-  if(h>=4&&(h<9||(h===9&&m<30))) sess='盤前';
-  else if((h===9&&m>=30)||h>=10&&h<16) sess='盤中';
-  document.getElementById('twSession').textContent='台灣時間';
-  document.getElementById('usSession').textContent=`美東 · ${sess}`;
-}
-setInterval(updateClock,1000);
-updateClock();
-
-// ══════════════════════════════════════════════════════
-// 主流程
-// ══════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════
-// localStorage 分析結果快取
-// key = cache:{sector}:{時段}  時段 = YYYY-MM-DD:pre 或 YYYY-MM-DD:mkt
-// ══════════════════════════════════════════════════════
-function getCacheKey(sector){
-  // 用台灣時間換算成美東時間，判斷目前是哪個時段
+// ── Claude API 情緒分析（帶時段快取，跨使用者共享）──────────
+// 時段 key：美東時間 00:00–09:29 = 'pre'，09:30–23:59 = 'mkt'
+// 同一時段第一個人打完 Claude，結果存進快取；其餘人直接拿快取，不重打 API
+function getEasternSessionKey() {
   const now = new Date();
+  // 取美東時間的小時與分鐘
   // 用 formatToParts 精確取值，避免 toLocaleString 回傳格式因環境而異造成解析失敗
-  const parts = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(now);
-  const h = Number(parts.find(p=>p.type==='hour')?.value);
-  const m = Number(parts.find(p=>p.type==='minute')?.value);
-  if(Number.isNaN(h)||Number.isNaN(m)) return null; // 解析失敗時不快取，寧可重算
-  const isMarket = h>9||(h===9&&m>=30); // 09:30 開盤起算
-  const isAfterClose = h>=16; // 16:00 收盤起算
-  // 盤中（09:30–15:59）不快取（股價還在變）
-  // 盤前 + 盤後（00:00–09:29 & 16:00–23:59）快取
-  const inMarketHours = isMarket && !isAfterClose;
-  const session = inMarketHours ? null : (isAfterClose ? 'post' : 'pre');
-  if(!session) return null; // 盤中不快取
-  const dateStr = now.toLocaleDateString('en-CA',{timeZone:'America/New_York'}); // YYYY-MM-DD
-  return `cache:${sector}:${dateStr}:${session}`;
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now);
+  const h = Number(parts.find(p => p.type === 'hour')?.value);
+  const m = Number(parts.find(p => p.type === 'minute')?.value);
+  const isMarketOrAfter = h > 9 || (h === 9 && m >= 30);
+  const session = isMarketOrAfter ? 'mkt' : 'pre';
+  // 加上美東日期，確保隔天快取自動失效
+  const dateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // YYYY-MM-DD
+  return `sentiment:${dateStr}:${session}`;
 }
 
-function loadCache(sector){
-  const key = getCacheKey(sector);
-  if(!key) return null; // 盤中不用快取
-  try{
-    const raw = localStorage.getItem(key);
-    if(!raw) return null;
-    return JSON.parse(raw);
-  }catch(e){ return null; }
-}
+async function cachedProxyClaude(body, env, ctx) {
+  const cache = caches.default;
+  const sessionKey = getEasternSessionKey();
+  const cacheKey = new Request(`https://cache.internal/${sessionKey}`, { method: 'GET' });
 
-function saveCache(sector, data){
-  const key = getCacheKey(sector);
-  if(!key) return; // 盤中不存
-  try{
-    // 清除舊的同 sector 快取（不同日期/時段的舊 key）
-    Object.keys(localStorage)
-      .filter(k=>k.startsWith(`cache:${sector}:`)&&k!==key)
-      .forEach(k=>localStorage.removeItem(k));
-    localStorage.setItem(key, JSON.stringify(data));
-  }catch(e){ console.warn('localStorage write failed', e); }
-}
-
-function clearSectorCache(sector){
-  Object.keys(localStorage)
-    .filter(k=>k.startsWith(`cache:${sector}:`))
-    .forEach(k=>localStorage.removeItem(k));
-}
-
-async function runAll(forceRefresh=false){
-  if(isRunning) return; // 防重入
-  isRunning=true;
-  const btn=document.getElementById('runBtn');
-  btn.disabled=true;
-  ['errCard','newsCard','strengthCard','tableCard','idleCard'].forEach(hide);
-  show('progressCard');
-  // 強制重新分析時清除快取
-  if(forceRefresh) clearSectorCache(currentSector);
-
-  // 套用類股 UI
-  applySectorUI(currentSector);
-  const cfg = SECTOR_CONFIG[currentSector];
-  const isSentiment = cfg.showSentiment;
-  document.getElementById('progTitle').textContent = `正在分析 ${cfg.poolLabel}...`;
-
-  // ── 快取命中：盤前或盤後同一時段已算過，直接渲染 ──
-  const cached = loadCache(currentSector);
-  if(cached){
-    hide('progressCard');
-    renderFromCache(cached, cfg);
-    const now=new Date();
-    document.getElementById('updTime').textContent=
-      now.toLocaleDateString('zh-TW')+' '+now.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})+'（快取）';
-    btn.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg> 重新分析`;
-    isRunning=false;
-    startCooldown(btn,30);
-    return;
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    const res = new Response(cached.body, cached);
+    res.headers.set('X-Cache', 'HIT');
+    res.headers.set('X-Sentiment-Session', sessionKey);
+    return res;
   }
 
-  try{
-    // ── Step1: 指數顯示（依類股設定）──
-    setP(5, `抓取 ${cfg.poolLabel} 相關指數...`);
-    for(const [t,pid,cid] of [[cfg.idx1Sym,'nqPrice','nqChg'],[cfg.idx2Sym,'esPrice','esChg'],[cfg.idx3Sym,'soxPrice','soxChg']]){
-      try{
-        const d=await fetchQuote(t);
-        const r=d?.chart?.result?.[0];
-        if(r){
-          const p=r.meta.regularMarketPrice,pv=r.meta.chartPreviousClose||p;
-          const chg=(p-pv)/pv*100;
-          const cls=chg>=0?'up':'down';
-          document.getElementById(pid).textContent=p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-          document.getElementById(pid).className='fut-price '+cls;
-          document.getElementById(cid).textContent=fmtChg(chg);
-          document.getElementById(cid).className='fut-chg '+cls;
-        }
-      }catch(e){document.getElementById(cid).textContent='N/A';}
-      await delay(200);
-    }
+  const res = await proxyClaude(body, env);
+  // 情緒分析結果快取到該時段結束：
+  // 盤前(pre)到 09:30 開盤、盤中/盤後(mkt)到隔天 00:00，用固定大 TTL 搭配日期 key 確保隔天失效
+  const resToCache = res.clone();
+  resToCache.headers.set('Cache-Control', 'public, max-age=43200'); // 12小時，靠日期 key 確保隔天不重複使用
+  ctx.waitUntil(cache.put(cacheKey, resToCache));
 
-    // ── Step2: 基準（依類股設定）──
-    setP(12, `抓取 ${cfg.etfLabel} 基準數據...`);
-    let spyParsed=null,soxxParsed=null;
-    try{spyParsed=parseChart(await fetchQuote(cfg.benchmarkSpy));}catch(e){}
-    await delay(200);
-    try{soxxParsed=parseChart(await fetchQuote(cfg.benchmark));}catch(e){}
-    await delay(200);
-    const spyC=spyParsed?.closes||[];
-    const soxxC=soxxParsed?.closes||[];
+  res.headers.set('X-Cache', 'MISS');
+  res.headers.set('X-Sentiment-Session', sessionKey);
+  return res;
+}
 
-    // ── Step3: 市場強度 ──
-    setP(18,'計算市場強度指數...');
-    let mktStr={total:50,f1:12,f2:12,f3:10,f4:8,f5:8,spyRSI:50,soxxRS:1,hvV:0.2,mom:0,aboveMAs:2};
-    if(spyC.length>30&&soxxC.length>30){
-      mktStr=calcMarketStrength(spyC,soxxC);
-    }
-    const sc=strengthColor(mktStr.total);
-    document.getElementById('strengthScore').textContent=mktStr.total;
-    document.getElementById('strengthScore').className='mkt-str-val';
-    document.getElementById('strengthScore').style.color=sc;
-    document.getElementById('strengthLabel').textContent=strengthLabel(mktStr.total);
-    document.getElementById('strengthLabel').className='mkt-str-lbl';
-    document.getElementById('strengthLabel').style.color=sc;
-
-    const factors=[
-      {val:`RSI ${mktStr.spyRSI.toFixed(0)}`,score:mktStr.f1,max:25},
-      {val:`RS ${mktStr.soxxRS.toFixed(2)}`,score:mktStr.f2,max:25},
-      {val:`${mktStr.aboveMAs}/3 均線`,score:mktStr.f3,max:20},
-      {val:`HV ${(mktStr.hvV*100).toFixed(1)}%`,score:mktStr.f4,max:15},
-      {val:`動能 ${mktStr.mom>=0?'+':''}${mktStr.mom.toFixed(1)}%`,score:mktStr.f5,max:15},
-    ];
-    factors.forEach((f,i)=>{
-      const n=i+1;
-      document.getElementById(`sb${n}Val`).textContent=`${f.val} (${f.score}/${f.max})`;
-      document.getElementById(`sb${n}Bar`).style.width=(f.score/f.max*100)+'%';
-      document.getElementById(`sb${n}Bar`).style.background=strengthColor(f.score/f.max*100);
-    });
-    show('strengthCard');
-    show('modelBar');
-
-    // ── 情緒分析：只有半導體(SOXX)才執行 ──
-    let newsWithSent=[];
-    let sentByTicker={};
-
-    if(isSentiment){
-      // ── Step4: Finnhub 新聞 ──
-      setP(22,'抓取今日半導體新聞...');
-      const topTickers=SOXX.slice(0,10).map(s=>s.t);
-      const rawNews=await fetchNews(topTickers);
-
-      // ── Step5: Claude 情緒分析 ──
-      setP(30,'Claude AI 分析新聞情緒...');
-      newsWithSent=await analyzeSentiment(rawNews);
-
-      // 新聞渲染
-      const newsList=document.getElementById('newsList');
-      newsList.innerHTML='';
-      const generalNews=newsWithSent.filter(n=>n.ticker==='總經');
-      const stockNews=newsWithSent.filter(n=>n.ticker!=='總經'&&Math.abs(n.polarity||0)>0.2);
-      const displayNews=[...generalNews,...stockNews];
-
-      if(displayNews.length>0){
-        if(generalNews.length>0){
-          newsList.innerHTML+=`<div style="padding:8px 16px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);">總體經濟</div>`;
-          generalNews.forEach(n=>{
-            const icon=n.polarity>0.1?'▲':n.polarity<-0.1?'▼':'—';
-            const iconColor=n.polarity>0.1?'var(--up)':n.polarity<-0.1?'var(--dn)':'var(--text3)';
-            const commentary=n.commentary?`<div style="font-size:11px;color:var(--accent2);margin-top:4px;">📌 ${n.commentary}</div>`:'';
-            newsList.innerHTML+=`
-            <div class="news-item">
-              <span class="news-icon" style="color:${iconColor};font-size:12px;font-weight:700;">${icon}</span>
-              <div class="news-body">
-                <div class="news-text">${n.summary||n.headline?.slice(0,60)}</div>
-                ${commentary}
-                <div class="news-meta"><span style="color:var(--accent2)">總經</span> · 極性 ${n.polarity>=0?'+':''}${n.polarity?.toFixed(2)} · ${n.impact} impact</div>
-              </div>
-              <span class="ntag ${n.polarity>0.1?'ntag-pos':n.polarity<-0.1?'ntag-neg':'ntag-neu'}">${n.polarity>0.1?'利多':n.polarity<-0.1?'利空':'中性'}</span>
-            </div>`;
-          });
-        }
-        if(stockNews.length>0){
-          newsList.innerHTML+=`<div style="padding:8px 16px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);border-top:1px solid var(--border);">個股消息</div>`;
-          stockNews.forEach(n=>{
-            const icon=n.polarity>0.2?'▲':'▼';
-            const iconColor=n.polarity>0.2?'var(--up)':'var(--dn)';
-            newsList.innerHTML+=`
-            <div class="news-item">
-              <span class="news-icon" style="color:${iconColor};font-size:12px;font-weight:700;">${icon}</span>
-              <div class="news-body">
-                <div class="news-text">${n.summary||n.headline?.slice(0,60)}</div>
-                <div class="news-meta"><span style="color:var(--accent2)">${n.ticker}</span> · 極性 ${n.polarity>=0?'+':''}${n.polarity?.toFixed(2)} · ${n.impact} impact</div>
-              </div>
-              <span class="ntag ${n.polarity>0.2?'ntag-pos':'ntag-neg'}">${n.polarity>0.2?'利多':'利空'}</span>
-            </div>`;
-          });
-        }
-        document.getElementById('newsMeta').textContent=`總經 ${generalNews.length} 則 · 個股 ${stockNews.length} 則 · Finnhub + Claude AI`;
-      }else{
-        newsList.innerHTML=`
-        <div class="news-item">
-          <span class="news-icon" style="color:var(--text3);">—</span>
-          <div class="news-body">
-            <div class="news-text" style="color:var(--text2)">今日無重大利多或利空消息</div>
-            <div class="news-meta">中性新聞已過濾 · 僅顯示有明確影響的新聞</div>
-          </div>
-        </div>`;
-        document.getElementById('newsMeta').textContent='Finnhub + Claude AI';
-      }
-      show('newsCard');
-
-      newsWithSent.forEach(n=>{
-        if(!sentByTicker[n.ticker]) sentByTicker[n.ticker]=[];
-        sentByTicker[n.ticker].push(n);
-      });
-    }
-
-    // ── Step6: 分析成分股 ──
-    const pool = cfg.pool || SOXX; // SOXX 用原始陣列
-    const results=[];
-    const total=pool.length;
-    for(let i=0;i<total;i++){
-      const s=pool[i];
-      setP(Math.round(33+(i/total)*57),`分析 ${i+1}/${total}：${s.t}`);
-      try{
-        const parsed=parseChart(await fetchQuote(s.t));
-        if(!parsed) continue;
-        const sc2=scoreStock(parsed.closes,parsed.volumes,parsed.highs,parsed.lows,soxxC,spyC);
-
-        let finalScore;
-        if(!isSentiment){
-          // 技術面100%（無情緒層）：scoreStock 上限85，映射到99
-          finalScore=Math.min(99,Math.max(1,Math.round(sc2.score*99/85)));
-        } else {
-          // 技術面80% + 情緒面20%（半導體SOXX）
-          const tickerSent=sentByTicker[s.t]||[];
-          const sentS=sentimentScore(tickerSent);
-          finalScore=Math.min(99,Math.max(1,Math.round(sc2.score*0.8+sentS)));
-        }
-
-        if(sc2.upside<=0) continue;
-
-        results.push({
-          ticker:s.t,name:s.n,
-          price:parsed.price,todayChg:parsed.todayChg,ret30:parsed.ret30,
-          score:finalScore,techScore:sc2.score,sentScore:0,
-          ...sc2,
-        });
-      }catch(e){console.warn(s.t,e.message);}
-      await delay(200);
-    }
-
-    setP(93,'排名計算中...');
-    results.sort((a,b)=>b.score-a.score);
-    const top10=results.slice(0,10);
-
-    document.getElementById('mktCount').textContent=results.length;
-
-    // ── Step7: 渲染表格 ──
-    const tbody=document.getElementById('stockBody');
-    tbody.innerHTML='';
-    top10.forEach((s,i)=>{
-      const tdCls=s.todayChg>=0?'up':'down';
-      const r30Cls=s.ret30!=null?(s.ret30>=0?'up':'down'):'neu';
-      const barClr=s.score>=75?'var(--green)':s.score>=60?'var(--accent)':'var(--yellow)';
-      const rankCls=i<3?'rank top3':'rank';
-      const sigCls=s.sig==='buy'?'sig-buy':'sig-watch';
-      // 全部美股，統一 USD 顯示
-      const priceStr=`$${s.price.toFixed(2)}`;
-      const tgtStr=`$${s.target}`;
-      const buyStr=`$${s.buyLow}–$${s.buyHigh}`;
-
-      tbody.innerHTML+=`
-      <tr>
-        <td><div class="${rankCls}">${i+1}</div></td>
-        <td>
-          <div class="sym">${s.ticker}</div>
-          <div class="co">${s.name}</div>
-        </td>
-        <td class="r">
-          <div class="pv">${priceStr}</div>
-        </td>
-        <td class="r">
-          <div class="pv ${tdCls}" style="font-size:13px;">${fmtChg(s.todayChg)}</div>
-        </td>
-        <td class="r">
-          <div class="pv ${r30Cls}" style="font-size:13px;">${s.ret30!=null?fmtChg(s.ret30):'—'}</div>
-        </td>
-        <td class="r"><div class="buy-r">${buyStr}</div></td>
-        <td class="r">
-          <div class="tgt">${tgtStr}</div>
-          <div class="upside">+${s.upside}%</div>
-        </td>
-        <td class="c">
-          <div class="dots" title="RSI·MACD·均線·ADX·OBV">
-            <div class="dot d${s.rsiDot}"></div>
-            <div class="dot d${s.macdDot}"></div>
-            <div class="dot d${s.maDot}"></div>
-            <div class="dot d${s.adxDot}"></div>
-            <div class="dot d${s.obvDot}"></div>
-          </div>
-        </td>
-        <td>
-          <div class="sw">
-            <div class="sb"><div class="sf" style="width:${s.score}%;background:${barClr};"></div></div>
-            <span class="sn" style="color:${barClr};">${s.score}</span>
-          </div>
-        </td>
-        <td class="r">${(()=>{
-          const wr=lookupWinRate(currentSector,s.score);
-          if(!wr) return '<span style="color:var(--text3)">—</span>';
-          const cls=wr.winRate>=65?'up':wr.winRate>=50?'neu':'dn';
-          // 樣本數底色分級：<10 灰、10–29 淡黃、≥30 無
-          const bg=wr.count<10?'background:rgba(150,150,150,0.15);border-radius:4px;padding:2px 5px;'
-                  :wr.count<30?'background:rgba(247,195,92,0.12);border-radius:4px;padding:2px 5px;':'';
-          const note=wr.count<10?'樣本不足':`${wr.count}筆`;
-          return `<div style="${bg}display:inline-block;"><span class="${cls}" style="font-family:var(--mono);font-weight:600;">${wr.winRate}%</span><div style="font-size:9px;color:var(--text3);">${wr.lo}–${wr.hi}% · ${note}</div></div>`;
-        })()}</td>
-        <td class="c"><span class="sig ${sigCls}">${s.sigLbl}</span></td>
-      </tr>`;
-    });
-
-    document.getElementById('tableMeta').textContent= isSentiment
-      ?`從 ${results.length} 支正報酬標的中篩選 · 技術面80% + 情緒面20%`
-      :`從 ${results.length} 支正報酬標的中篩選 · 技術面100%（無情緒層）`;
-    show('tableCard');
-
-    // 存進 localStorage 快取（盤中不存）
-    saveCache(currentSector, {
-      top10, mktStr, newsWithSent, isSentiment,
-      results_length: results.length,
-    });
-
-    const now=new Date();
-    document.getElementById('updTime').textContent=
-      now.toLocaleDateString('zh-TW')+' '+now.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
-    setP(100,'完成！');
-    await delay(400);
-    hide('progressCard');
-    // 完成後按鈕改「重新分析」
-    btn.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg> 重新分析`;
-    // 之後按「重新分析」強制清快取重跑
-    btn.onclick = () => runAll(true);
-
-  }catch(err){
-    console.error(err);
-    hide('progressCard');
-    show('errCard');
-    document.getElementById('errMsg').textContent=err.message;
+// ── Claude API（不快取，直接打）─────────────────────────────
+async function proxyClaude(body, env) {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY 未設定');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Claude ${res.status}: ${errText}`);
   }
-  isRunning=false;
-  // 前端冷卻：分析完成後 30 秒內按鈕鎖定，防止頻繁重複分析消耗資源
-  startCooldown(btn,30);
+  return ok(await res.json());
 }
 
-function startCooldown(btn,seconds){
-  let remaining=seconds;
-  btn.disabled=true;
-  const tick=()=>{
-    btn.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a10 10 0 110 20A10 10 0 0112 2z" opacity=".2"/></svg> ${remaining}秒後可再分析`;
-    remaining--;
-    if(remaining<0){
-      btn.disabled=false;
-      btn.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg> 重新分析`;
-      return;
-    }
-    setTimeout(tick,1000);
-  };
-  tick();
+// ── 工具函式 ───────────────────────────────────────────────
+function ok(obj, status = 200) {
+  return new Response(JSON.stringify(obj), { status, headers: CORS });
 }
-
-// 頁面載入後僅套用初始 UI，不自動計算
-applySectorUI(currentSector);
-</script>
-</body>
-</html>
+function err(msg, status = 400) {
+  return new Response(JSON.stringify({ error: msg }), { status, headers: CORS });
+}
