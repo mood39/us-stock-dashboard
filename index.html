@@ -60,6 +60,12 @@ header{
 .mode-btn{background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:500;cursor:pointer;transition:all .2s;font-family:var(--sans);white-space:nowrap;}
 .mode-btn:hover{color:var(--text);border-color:var(--accent);}
 .mode-btn.active{background:var(--accent);color:#fff;font-weight:600;border-color:var(--accent);}
+/* 情緒分析開關（僅半導體顯示） */
+.sent-toggle{background:var(--bg2);color:var(--text3);border:1px dashed var(--border2);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:500;cursor:pointer;transition:all .2s;font-family:var(--sans);white-space:nowrap;margin-left:auto;}
+.sent-toggle:hover{color:var(--text);border-color:var(--accent2);}
+.sent-toggle.on{background:var(--accent2);color:#0d0f14;font-weight:600;border-style:solid;border-color:var(--accent2);}
+.sent-toggle.hidden{display:none!important;}
+@media(max-width:600px){.sent-toggle{font-size:10px;padding:4px 8px;margin-left:0;}}
 /* 手機直式：logo-sub 隱藏，縮小字 */
 @media(max-width:600px){
   .logo-sub{display:none;}
@@ -200,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v3.2</span>
+      <span class="logo-sub">盤前參考版 v3.3</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -220,6 +226,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <button class="mode-btn" id="sectorBtnTECH" onclick="switchSector('tech')">🚀 AI & 太空</button>
     <button class="mode-btn" id="sectorBtnITA"  onclick="switchSector('ita')">🛡️ 航太國防</button>
     <button class="mode-btn" id="sectorBtnREMX" onclick="switchSector('remx')">⚗️ 稀土</button>
+    <button class="sent-toggle" id="sentimentToggle" onclick="toggleSentiment()">💬 情緒分析：關</button>
   </div>
 </header>
 
@@ -1026,6 +1033,28 @@ function lookupWinRate(sector, score){
 // 類股管理（取代舊的模式管理）
 // ══════════════════════════════════════════════════════
 let currentSector = 'soxx';
+// 情緒分析開關（僅半導體有效），預設關閉以節省 Claude API 用量
+let sentimentEnabled = (()=>{
+  try{ return localStorage.getItem('sentimentEnabled')==='true'; }catch(e){ return false; }
+})();
+
+function toggleSentiment(){
+  sentimentEnabled = !sentimentEnabled;
+  try{ localStorage.setItem('sentimentEnabled', String(sentimentEnabled)); }catch(e){}
+  updateSentimentToggleUI();
+  // 切換後清掉半導體快取，下次分析才會用新設定重算
+  clearSectorCache('soxx');
+}
+
+function updateSentimentToggleUI(){
+  const btn = document.getElementById('sentimentToggle');
+  if(!btn) return;
+  btn.classList.toggle('on', sentimentEnabled);
+  btn.textContent = sentimentEnabled ? '💬 情緒分析：開' : '💬 情緒分析：關';
+  btn.title = sentimentEnabled
+    ? '目前技術面80% + 情緒面20%，會消耗 Claude API 額度'
+    : '目前技術面100%，不消耗 Claude API 額度';
+}
 let isRunning = false;  // 防重入鎖
 
 function switchSector(sector) {
@@ -1082,7 +1111,14 @@ function applySectorUI(sector) {
   document.getElementById('modelLayer2Text').textContent = cfg.layer2Text;
   document.getElementById('tableTitle').textContent = cfg.tableTitle;
   document.getElementById('footerText').textContent = cfg.footerText;
-  if(cfg.showSentiment){
+  // 情緒開關按鈕：只有支援情緒的類股（半導體）才顯示
+  const sentBtn = document.getElementById('sentimentToggle');
+  if(sentBtn) sentBtn.classList.toggle('hidden', !cfg.showSentiment);
+  updateSentimentToggleUI();
+
+  // 情緒層是否啟用 = 類股支援 且 開關打開
+  const sentOn = cfg.showSentiment && sentimentEnabled;
+  if(sentOn){
     document.getElementById('modelLayer4').classList.remove('hidden');
     document.getElementById('modelDivider4').classList.remove('hidden');
     document.getElementById('newsCard').classList.remove('hidden');
@@ -1608,7 +1644,9 @@ function getCacheKey(sector){
   const session = inMarketHours ? null : (isAfterClose ? 'post' : 'pre');
   if(!session) return null; // 盤中不快取
   const dateStr = now.toLocaleDateString('en-CA',{timeZone:'America/New_York'}); // YYYY-MM-DD
-  return `cache:${sector}:${dateStr}:${session}`;
+  // 半導體加註情緒開關狀態，開/關兩種模式的結果不同，必須分開快取
+  const sentTag = (sector==='soxx') ? (sentimentEnabled?':s1':':s0') : '';
+  return `cache:${sector}:${dateStr}:${session}${sentTag}`;
 }
 
 function loadCache(sector){
@@ -1634,9 +1672,12 @@ function saveCache(sector, data){
 }
 
 function clearSectorCache(sector){
-  Object.keys(localStorage)
-    .filter(k=>k.startsWith(`cache:${sector}:`))
-    .forEach(k=>localStorage.removeItem(k));
+  // 清掉該類股所有快取變體（含情緒開/關兩種）
+  try{
+    Object.keys(localStorage)
+      .filter(k=>k.startsWith(`cache:${sector}:`))
+      .forEach(k=>localStorage.removeItem(k));
+  }catch(e){}
 }
 
 async function runAll(forceRefresh=false){
@@ -1652,7 +1693,7 @@ async function runAll(forceRefresh=false){
   // 套用類股 UI
   applySectorUI(currentSector);
   const cfg = SECTOR_CONFIG[currentSector];
-  const isSentiment = cfg.showSentiment;
+  const isSentiment = cfg.showSentiment && sentimentEnabled; // 需類股支援且開關打開
   document.getElementById('progTitle').textContent = `正在分析 ${cfg.poolLabel}...`;
 
   // ── 快取命中：盤前或盤後同一時段已算過，直接渲染 ──
