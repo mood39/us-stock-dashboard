@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v4.2</span>
+      <span class="logo-sub">盤前參考版 v4.3</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -1502,26 +1502,42 @@ function parseChart(data){
   const mktDay=etDayNum(r.meta&&r.meta.regularMarketTime);
   const lastBarIsToday=lastBarDay!==null&&mktDay!==null&&lastBarDay===mktDay;
 
+  // ── 昨收基準：只用日線陣列，不用 chartPreviousClose ──
+  // chartPreviousClose 是「圖表區間起始價」（本例 range=6mo，即半年前價格），
+  // 不是昨日收盤價。誤用會算出單日 +60% 這種荒謬漲幅。
   let prev;
   if(lastBarIsToday){
-    prev=closes.length>=2?n(closes[closes.length-2]):lastClose;
+    // 日線最後一筆是今天 → 昨收取倒數第二筆
+    prev=closes.length>=2?n(closes[closes.length-2]):null;
   } else {
+    // 日線最後一筆是昨天（今日K棒未生成）→ 昨收就是最後一筆
     prev=lastClose;
   }
-  // chartPreviousClose 若存在且與推算值差距合理，優先採用（Yahoo 官方標示的昨收）
-  const metaPrev=n(r.meta&&r.meta.chartPreviousClose);
-  if(metaPrev!==null&&prev!==null&&Math.abs(metaPrev-prev)/prev<=0.35) prev=metaPrev;
-  if(prev===null) prev=price;
+  if(prev===null) prev=lastClose;
 
-  const todayChg=prev>0?(price-prev)/prev*100:0;
+  let todayChg=prev>0?(price-prev)/prev*100:0;
+
+  // ── 堪錯：單日漲跌超過 ±30% 視為異常 ──
+  // 美股個股單日極少超過此幅度，超出代表基準價取錯，標記為不可信而非顯示錯誤數字
+  let chgSuspect=false;
+  if(Math.abs(todayChg)>30){
+    chgSuspect=true;
+    // 改用倒數兩筆日線收盤計算（最保守的可信來源）
+    const c1=n(closes[closes.length-1]);
+    const c2=closes.length>=2?n(closes[closes.length-2]):null;
+    if(c1!==null&&c2!==null&&c2>0){
+      const alt=(c1-c2)/c2*100;
+      if(Math.abs(alt)<=30){ todayChg=alt; chgSuspect=false; }
+    }
+  }
 
   // 過去30日
   const c21=closes.length>=21?n(closes[closes.length-21]):null;
   const ret30=c21!==null?(price/c21-1)*100:null;
 
   // 診斷資訊：可在 Console 用 window.__diag 查看實際取到的原始值
-  const _diag={liveMP,lastClose,price,prev,lastBarIsToday,lastBarDay,mktDay};
-  return{closes,volumes,highs,lows,price,prev,todayChg,ret30,_diag};
+  const _diag={liveMP,lastClose,price,prev,todayChg:+todayChg.toFixed(2),chgSuspect,lastBarIsToday};
+  return{closes,volumes,highs,lows,price,prev,todayChg,ret30,chgSuspect,_diag};
 }
 
 // ══════════════════════════════════════════════════════
@@ -1756,7 +1772,7 @@ async function runAll(){
         window.__diag[s.t]=parsed._diag;
         results.push({
           ticker:s.t,name:s.n,
-          price:parsed.price,todayChg:parsed.todayChg,ret30:parsed.ret30,
+          price:parsed.price,todayChg:parsed.todayChg,ret30:parsed.ret30,chgSuspect:parsed.chgSuspect,
           score:finalScore,techScore:sc2.score,sentScore:0,
           ...sc2,
         });
@@ -1808,7 +1824,7 @@ async function runAll(){
           +'<td><div class="'+rankCls+'">'+(i+1)+'</div></td>'
           +'<td><div class="sym">'+s.ticker+'</div><div class="co">'+s.name+'</div></td>'
           +'<td class="r"><div class="pv">'+priceStr+'</div></td>'
-          +'<td class="r"><div class="pv '+tdCls+'" style="font-size:13px;">'+fmtChg(s.todayChg)+'</div></td>'
+          +'<td class="r"><div class="pv '+tdCls+'" style="font-size:13px;">'+fmtChg(s.todayChg)+(s.chgSuspect?'<span title="漲跌幅異常，基準價可能有誤" style="color:var(--yellow);margin-left:3px;">⚠</span>':'')+'</div></td>'
           +'<td class="r"><div class="pv '+r30Cls+'" style="font-size:13px;">'+(s.ret30!=null?fmtChg(s.ret30):'—')+'</div></td>'
           +'<td class="r"><div class="buy-r">'+buyStr+'</div></td>'
           +'<td class="r"><div class="tgt">'+tgtStr+'</div><div class="upside">+'+s.upside+'%</div></td>'
