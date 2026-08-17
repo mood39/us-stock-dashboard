@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v3.6</span>
+      <span class="logo-sub">盤前參考版 v3.7</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -1474,40 +1474,48 @@ function parseChart(data){
   const lows=idx.map(i=>(q.low||[])[i]).filter(x=>x!=null);
 
   // ── 現價：一律以 Yahoo 的 regularMarketPrice 為準 ──
-  // 這是 Yahoo 明確標示的即時報價欄位，比從日線陣列推測可靠得多。
-  // 日線陣列的最後一筆在盤中可能還沒生成、或為 null 被過濾掉，
-  // 導致 closes.at(-1) 誤取到前一個交易日的值（曾造成顯示數天前舊價格的 bug）。
-  const lastClose=closes.at(-1);
-  const liveMP=r.meta.regularMarketPrice;
-  const price=(liveMP!=null&&liveMP>0)?liveMP:lastClose;
+  // 用 Number() 明確轉型，避免不同 JS 引擎（V8 vs WebKit）對型別處理差異
+  // 造成判斷失敗而 fallback 到日線舊值（曾導致 iPad 顯示數天前價格）
+  const n=(v)=>{const x=Number(v);return Number.isFinite(x)&&x>0?x:null;};
+  const lastClose=n(closes[closes.length-1]);
+  const liveMP=n(r.meta&&r.meta.regularMarketPrice);
+  const price=liveMP!==null?liveMP:lastClose;
+  if(price===null) return null; // 完全拿不到價格，跳過此股
 
-  // ── 昨收基準：用 meta.chartPreviousClose，其次日線倒數第二筆 ──
-  // regularMarketTime 換算成美東日期，與日線最後一筆日期比對，
-  // 判斷 lastClose 究竟是「今天的盤中價」還是「昨天的收盤價」
-  const lastTs=ts[idx.at(-1)];
-  const mktTs=r.meta.regularMarketTime;
-  const toETDate=(sec)=>sec?new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(sec*1000)):null;
-  const lastBarET=toETDate(lastTs);
-  const marketET=toETDate(mktTs);
-  const lastBarIsToday=lastBarET!=null&&lastBarET===marketET;
+  // ── 昨收基準 ──
+  // 不依賴 Intl.DateTimeFormat（各引擎輸出格式不一），改用 UTC 秒數純數學計算美東日期。
+  // 美東與 UTC 時差：EDT -4h / EST -5h。用 -5h 統一計算，日界判斷誤差不影響結果，
+  // 因為只需知道「日線最後一筆」和「報價時間」是否為同一個交易日。
+  const etDayNum=(sec)=>{
+    const s=Number(sec);
+    if(!Number.isFinite(s)) return null;
+    return Math.floor((s-5*3600)/86400); // 以美東為基準的日序號
+  };
+  const lastTs=ts[idx[idx.length-1]];
+  const lastBarDay=etDayNum(lastTs);
+  const mktDay=etDayNum(r.meta&&r.meta.regularMarketTime);
+  const lastBarIsToday=lastBarDay!==null&&mktDay!==null&&lastBarDay===mktDay;
 
   let prev;
   if(lastBarIsToday){
-    // 日線最後一筆就是今天：昨收 = 倒數第二筆
-    prev=closes.length>=2?closes.at(-2):lastClose;
+    prev=closes.length>=2?n(closes[closes.length-2]):lastClose;
   } else {
-    // 日線最後一筆是昨天（今日K棒還沒生成）：昨收 = 最後一筆
     prev=lastClose;
   }
   // chartPreviousClose 若存在且與推算值差距合理，優先採用（Yahoo 官方標示的昨收）
-  const metaPrev=r.meta.chartPreviousClose;
-  if(metaPrev!=null&&metaPrev>0&&prev>0&&Math.abs(metaPrev-prev)/prev<=0.35) prev=metaPrev;
+  const metaPrev=n(r.meta&&r.meta.chartPreviousClose);
+  if(metaPrev!==null&&prev!==null&&Math.abs(metaPrev-prev)/prev<=0.35) prev=metaPrev;
+  if(prev===null) prev=price;
 
   const todayChg=prev>0?(price-prev)/prev*100:0;
 
-  // 過去30日：用 closes.at(-21) 是約 20 個交易日前（排除今日）
-  const ret30=closes.length>=21?(price/closes.at(-21)-1)*100:null;
-  return{closes,volumes,highs,lows,price,prev,todayChg,ret30};
+  // 過去30日
+  const c21=closes.length>=21?n(closes[closes.length-21]):null;
+  const ret30=c21!==null?(price/c21-1)*100:null;
+
+  // 診斷資訊：可在 Console 用 window.__diag 查看實際取到的原始值
+  const _diag={liveMP,lastClose,price,prev,lastBarIsToday,lastBarDay,mktDay};
+  return{closes,volumes,highs,lows,price,prev,todayChg,ret30,_diag};
 }
 
 // ══════════════════════════════════════════════════════
@@ -1737,6 +1745,8 @@ async function runAll(){
 
         if(sc2.upside<=0) continue;
 
+        if(!window.__diag) window.__diag={};
+        window.__diag[s.t]=parsed._diag;
         results.push({
           ticker:s.t,name:s.n,
           price:parsed.price,todayChg:parsed.todayChg,ret30:parsed.ret30,
