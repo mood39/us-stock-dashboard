@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v4.4</span>
+      <span class="logo-sub">盤前參考版 v4.5</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -377,6 +377,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
           <th class="r">現價</th>
           <th class="r">今日漲跌</th>
           <th class="r">過去30日</th>
+          <th class="r">量能</th>
           <th class="r">買入區間</th>
           <th class="r">目標價 / 空間</th>
           <th class="c">指標</th>
@@ -397,6 +398,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
       <span style="margin-left:8px;color:var(--green)">● 強</span>
       <span style="color:var(--yellow)">● 中</span>
       <span style="color:var(--red)">● 弱</span>
+      <span style="margin-left:16px;color:var(--text3);">量能：今日量 ÷ 前20日均量（僅供觀察，未納入評分）</span>
       <span style="margin-left:16px;color:var(--text3);">歷史勝率：持倉 +7% 獲利 / −10% 停損出場之勝率（2025/1/1–2026/6/25 回測）。括號內為 95% 信賴區間；黃底 = 樣本 &lt;30 筆，僅供參考</span>
     </div>
     <div class="disclaimer">
@@ -1543,9 +1545,24 @@ function parseChart(data){
   const c30=closes.length>=31?n(closes[closes.length-31]):null;
   const ret30=c30!==null?(price/c30-1)*100:null;
 
+  // ── 相對量能：今日量 vs 前20日均量 ──
+  // 量能本身無方向性，須搭配價格判讀（放量上漲=買盤強，放量下跌=賣壓重）
+  // 此處僅計算比值供觀察，不納入評分
+  let volRatio=null;
+  if(volumes.length>=21){
+    const todayVol=Number(volumes[volumes.length-1]);
+    let sum=0,cnt=0;
+    for(let i=volumes.length-21;i<volumes.length-1;i++){
+      const v=Number(volumes[i]);
+      if(Number.isFinite(v)&&v>0){sum+=v;cnt++;}
+    }
+    const avgVol=cnt>0?sum/cnt:0;
+    if(Number.isFinite(todayVol)&&todayVol>0&&avgVol>0) volRatio=+(todayVol/avgVol).toFixed(2);
+  }
+
   // 診斷資訊：可在 Console 用 window.__diag 查看實際取到的原始值
   const _diag={liveMP,lastClose,price,prev,todayChg:+todayChg.toFixed(2),chgSuspect,lastBarIsToday};
-  return{closes,volumes,highs,lows,price,prev,todayChg,ret30,chgSuspect,_diag};
+  return{closes,volumes,highs,lows,price,prev,todayChg,ret30,chgSuspect,volRatio,_diag};
 }
 
 // ══════════════════════════════════════════════════════
@@ -1780,7 +1797,7 @@ async function runAll(){
         window.__diag[s.t]=parsed._diag;
         results.push({
           ticker:s.t,name:s.n,
-          price:parsed.price,todayChg:parsed.todayChg,ret30:parsed.ret30,chgSuspect:parsed.chgSuspect,
+          price:parsed.price,todayChg:parsed.todayChg,ret30:parsed.ret30,chgSuspect:parsed.chgSuspect,volRatio:parsed.volRatio,
           score:finalScore,techScore:sc2.score,sentScore:0,
           ...sc2,
         });
@@ -1827,6 +1844,16 @@ async function runAll(){
           }
         }catch(e){}
 
+        // 量能顯示：≥1.5x 放量（綠）、≤0.7x 縮量（灰）、其間正常
+        let volCell='<span style="color:var(--text3)">—</span>';
+        if(s.volRatio!=null){
+          const vr=s.volRatio;
+          const vcls=vr>=1.5?'up':vr<=0.7?'neu':'';
+          const vlbl=vr>=2?'爆量':vr>=1.5?'放量':vr<=0.7?'縮量':'';
+          volCell='<span class="'+vcls+'" style="font-family:var(--mono);font-weight:600;">'+vr.toFixed(1)+'x</span>'
+                 +(vlbl?'<div style="font-size:9px;color:var(--text3);">'+vlbl+'</div>':'');
+        }
+
         rowsHtml.push(
           '<tr>'
           +'<td><div class="'+rankCls+'">'+(i+1)+'</div></td>'
@@ -1834,6 +1861,7 @@ async function runAll(){
           +'<td class="r"><div class="pv">'+priceStr+'</div></td>'
           +'<td class="r"><div class="pv '+tdCls+'" style="font-size:13px;">'+fmtChg(s.todayChg)+(s.chgSuspect?'<span title="漲跌幅異常，基準價可能有誤" style="color:var(--yellow);margin-left:3px;">⚠</span>':'')+'</div></td>'
           +'<td class="r"><div class="pv '+r30Cls+'" style="font-size:13px;">'+(s.ret30!=null?fmtChg(s.ret30):'—')+'</div></td>'
+          +'<td class="r">'+volCell+'</td>'
           +'<td class="r"><div class="buy-r">'+buyStr+'</div></td>'
           +'<td class="r"><div class="tgt">'+tgtStr+'</div><div class="upside">+'+s.upside+'%</div></td>'
           +'<td class="c"><div class="dots" title="RSI·MACD·均線·ADX·OBV">'
