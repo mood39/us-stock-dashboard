@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v3.8</span>
+      <span class="logo-sub">盤前參考版 v3.9</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -1771,67 +1771,58 @@ async function runAll(){
 
     // ── Step7: 渲染表格 ──
     const tbody=document.getElementById('stockBody');
-    tbody.innerHTML='';
+    // 用陣列組裝後一次性寫入，避免 innerHTML+= 在迴圈中逐次重新解析
+    // （WebKit 上若過程中任一列出錯，會留下舊的或不完整的 DOM）
+    const rowsHtml=[];
     top10.forEach((s,i)=>{
-      const tdCls=s.todayChg>=0?'up':'down';
-      const r30Cls=s.ret30!=null?(s.ret30>=0?'up':'down'):'neu';
-      const barClr=s.score>=75?'var(--green)':s.score>=60?'var(--accent)':'var(--yellow)';
-      const rankCls=i<3?'rank top3':'rank';
-      const sigCls=s.sig==='buy'?'sig-buy':'sig-watch';
-      // 全部美股，統一 USD 顯示
-      const priceStr=`$${s.price.toFixed(2)}`;
-      const tgtStr=`$${s.target}`;
-      const buyStr=`$${s.buyLow}–$${s.buyHigh}`;
+      try{
+        const tdCls=s.todayChg>=0?'up':'down';
+        const r30Cls=s.ret30!=null?(s.ret30>=0?'up':'down'):'neu';
+        const barClr=s.score>=75?'var(--green)':s.score>=60?'var(--accent)':'var(--yellow)';
+        const rankCls=i<3?'rank top3':'rank';
+        const sigCls=s.sig==='buy'?'sig-buy':'sig-watch';
+        const priceStr='$'+Number(s.price).toFixed(2);
+        const tgtStr='$'+s.target;
+        const buyStr='$'+s.buyLow+'–$'+s.buyHigh;
 
-      tbody.innerHTML+=`
-      <tr>
-        <td><div class="${rankCls}">${i+1}</div></td>
-        <td>
-          <div class="sym">${s.ticker}</div>
-          <div class="co">${s.name}</div>
-        </td>
-        <td class="r">
-          <div class="pv">${priceStr}</div>
-        </td>
-        <td class="r">
-          <div class="pv ${tdCls}" style="font-size:13px;">${fmtChg(s.todayChg)}</div>
-        </td>
-        <td class="r">
-          <div class="pv ${r30Cls}" style="font-size:13px;">${s.ret30!=null?fmtChg(s.ret30):'—'}</div>
-        </td>
-        <td class="r"><div class="buy-r">${buyStr}</div></td>
-        <td class="r">
-          <div class="tgt">${tgtStr}</div>
-          <div class="upside">+${s.upside}%</div>
-        </td>
-        <td class="c">
-          <div class="dots" title="RSI·MACD·均線·ADX·OBV">
-            <div class="dot d${s.rsiDot}"></div>
-            <div class="dot d${s.macdDot}"></div>
-            <div class="dot d${s.maDot}"></div>
-            <div class="dot d${s.adxDot}"></div>
-            <div class="dot d${s.obvDot}"></div>
-          </div>
-        </td>
-        <td>
-          <div class="sw">
-            <div class="sb"><div class="sf" style="width:${s.score}%;background:${barClr};"></div></div>
-            <span class="sn" style="color:${barClr};">${s.score}</span>
-          </div>
-        </td>
-        <td class="r">${(()=>{
+        // 勝率欄先算好，不放在 template literal 裡執行，避免拋錯中斷整列
+        let wrCell='<span style="color:var(--text3)">—</span>';
+        try{
           const wr=lookupWinRate(currentSector,s.score);
-          if(!wr) return '<span style="color:var(--text3)">—</span>';
-          const cls=wr.winRate>=65?'up':wr.winRate>=50?'neu':'dn';
-          // 樣本數底色分級：<10 灰、10–29 淡黃、≥30 無
-          const bg=wr.count<10?'background:rgba(150,150,150,0.15);border-radius:4px;padding:2px 5px;'
-                  :wr.count<30?'background:rgba(247,195,92,0.12);border-radius:4px;padding:2px 5px;':'';
-          const note=wr.count<10?'樣本不足':`${wr.count}筆`;
-          return `<div style="${bg}display:inline-block;"><span class="${cls}" style="font-family:var(--mono);font-weight:600;">${wr.winRate}%</span><div style="font-size:9px;color:var(--text3);">${wr.lo}–${wr.hi}% · ${note}</div></div>`;
-        })()}</td>
-        <td class="c"><span class="sig ${sigCls}">${s.sigLbl}</span></td>
-      </tr>`;
+          if(wr){
+            const wcls=wr.winRate>=65?'up':wr.winRate>=50?'neu':'dn';
+            const bg=wr.count<10?'background:rgba(150,150,150,0.15);border-radius:4px;padding:2px 5px;'
+                    :wr.count<30?'background:rgba(247,195,92,0.12);border-radius:4px;padding:2px 5px;':'';
+            const note=wr.count<10?'樣本不足':(wr.count+'筆');
+            wrCell='<div style="'+bg+'display:inline-block;"><span class="'+wcls+'" style="font-family:var(--mono);font-weight:600;">'+wr.winRate+'%</span><div style="font-size:9px;color:var(--text3);">'+wr.lo+'–'+wr.hi+'% · '+note+'</div></div>';
+          }
+        }catch(e){}
+
+        rowsHtml.push(
+          '<tr>'
+          +'<td><div class="'+rankCls+'">'+(i+1)+'</div></td>'
+          +'<td><div class="sym">'+s.ticker+'</div><div class="co">'+s.name+'</div></td>'
+          +'<td class="r"><div class="pv">'+priceStr+'</div></td>'
+          +'<td class="r"><div class="pv '+tdCls+'" style="font-size:13px;">'+fmtChg(s.todayChg)+'</div></td>'
+          +'<td class="r"><div class="pv '+r30Cls+'" style="font-size:13px;">'+(s.ret30!=null?fmtChg(s.ret30):'—')+'</div></td>'
+          +'<td class="r"><div class="buy-r">'+buyStr+'</div></td>'
+          +'<td class="r"><div class="tgt">'+tgtStr+'</div><div class="upside">+'+s.upside+'%</div></td>'
+          +'<td class="c"><div class="dots" title="RSI·MACD·均線·ADX·OBV">'
+            +'<div class="dot d'+s.rsiDot+'"></div>'
+            +'<div class="dot d'+s.macdDot+'"></div>'
+            +'<div class="dot d'+s.maDot+'"></div>'
+            +'<div class="dot d'+s.adxDot+'"></div>'
+            +'<div class="dot d'+s.obvDot+'"></div>'
+          +'</div></td>'
+          +'<td><div class="sw"><div class="sb"><div class="sf" style="width:'+s.score+'%;background:'+barClr+';"></div></div>'
+            +'<span class="sn" style="color:'+barClr+';">'+s.score+'</span></div></td>'
+          +'<td class="r">'+wrCell+'</td>'
+          +'<td class="c"><span class="sig '+sigCls+'">'+s.sigLbl+'</span></td>'
+          +'</tr>'
+        );
+      }catch(e){ console.warn('render row failed',s&&s.ticker,e); }
     });
+    tbody.innerHTML=rowsHtml.join('');
 
     document.getElementById('tableMeta').textContent= isSentiment
       ?`從 ${results.length} 支正報酬標的中篩選 · 技術面80% + 情緒面20%`
