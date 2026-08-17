@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v4.0</span>
+      <span class="logo-sub">盤前參考版 v4.1</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -1828,7 +1828,19 @@ async function runAll(){
       }catch(e){ console.warn('render row failed',s&&s.ticker,e); }
     });
     window.__trace.push('rows='+rowsHtml.length);
-    if(tbody){ tbody.innerHTML=rowsHtml.join(''); window.__trace.push('written'); }
+    if(tbody){
+      tbody.innerHTML=rowsHtml.join('');
+      window.__trace.push('written');
+      // 寫入後立即檢驗 DOM 真實狀態
+      const trs=tbody.querySelectorAll('tr');
+      window.__trace.push('domTR='+trs.length);
+      const firstSym=tbody.querySelector('.sym');
+      window.__trace.push('domFirst='+(firstSym?firstSym.textContent:'none'));
+      // 檢查整個文件裡有幾個 .sym（若 >10 表示畫面有其他來源的列）
+      window.__trace.push('allSym='+document.querySelectorAll('.sym').length);
+      // 檢查 tableCard 是否有多個
+      window.__trace.push('cards='+document.querySelectorAll('#tableCard').length);
+    }
 
     document.getElementById('tableMeta').textContent= isSentiment
       ?`從 ${results.length} 支正報酬標的中篩選 · 技術面80% + 情緒面20%`
