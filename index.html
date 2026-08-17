@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v3.9</span>
+      <span class="logo-sub">盤前參考版 v4.0</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -1584,6 +1584,7 @@ async function runAll(){
   ['errCard','newsCard','strengthCard','tableCard','idleCard'].forEach(hide);
   show('progressCard');
 
+  window.__trace=[]; // 重置執行軌跡
   // 套用類股 UI
   applySectorUI(currentSector);
   const cfg = SECTOR_CONFIG[currentSector];
@@ -1770,7 +1771,11 @@ async function runAll(){
     document.getElementById('mktCount').textContent=results.length;
 
     // ── Step7: 渲染表格 ──
+    window.__trace=window.__trace||[];
+    window.__trace.push('results='+results.length);
+    window.__trace.push('top10='+top10.length);
     const tbody=document.getElementById('stockBody');
+    window.__trace.push(tbody?'tbodyOK':'tbodyNULL');
     // 用陣列組裝後一次性寫入，避免 innerHTML+= 在迴圈中逐次重新解析
     // （WebKit 上若過程中任一列出錯，會留下舊的或不完整的 DOM）
     const rowsHtml=[];
@@ -1822,7 +1827,8 @@ async function runAll(){
         );
       }catch(e){ console.warn('render row failed',s&&s.ticker,e); }
     });
-    tbody.innerHTML=rowsHtml.join('');
+    window.__trace.push('rows='+rowsHtml.length);
+    if(tbody){ tbody.innerHTML=rowsHtml.join(''); window.__trace.push('written'); }
 
     document.getElementById('tableMeta').textContent= isSentiment
       ?`從 ${results.length} 支正報酬標的中篩選 · 技術面80% + 情緒面20%`
@@ -1835,7 +1841,8 @@ async function runAll(){
       const keys=Object.keys(dg).slice(0,3);
       const ua=navigator.userAgent.slice(0,60);
       let html=`<div style="color:var(--text3);margin-bottom:6px;">UA: ${ua}</div>`;
-      html+=`<div style="color:var(--text3);margin-bottom:6px;">版本: v3.8</div>`;
+      const verEl=document.querySelector('.logo-sub');
+      html+=`<div style="color:var(--text3);margin-bottom:6px;">版本: ${verEl?verEl.textContent:'?'} | 執行軌跡: ${(window.__trace||[]).join(' → ')}</div>`;
       for(const k of keys){
         const d=dg[k]||{};
         html+=`<div><b style="color:var(--accent2)">${k}</b> → liveMP=<b style="color:var(--green)">${d.liveMP}</b> | lastClose=${d.lastClose} | 採用price=<b style="color:var(--yellow)">${d.price}</b> | prev=${d.prev} | barToday=${d.lastBarIsToday}</div>`;
