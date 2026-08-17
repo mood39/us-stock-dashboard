@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v3.5</span>
+      <span class="logo-sub">盤前參考版 v3.6</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -1262,8 +1262,10 @@ function calcMarketStrength(spyC,soxxC){
 // ══════════════════════════════════════════════════════
 // 個股評分（四層，目標獲利 7–35%）
 // ══════════════════════════════════════════════════════
-function scoreStock(closes,volumes,highs,lows,soxxC,spyC){
-  const price=closes.at(-1);
+function scoreStock(closes,volumes,highs,lows,soxxC,spyC,livePrice){
+  // 現價優先用傳入的即時報價（parseChart 已從 regularMarketPrice 取得），
+  // 沒傳才退回日線最後一筆。日線陣列在盤中可能尚未更新，直接用會取到舊價格。
+  const price=(livePrice!=null&&livePrice>0)?livePrice:closes.at(-1);
 
   // 層次1：RSI/MACD/均線/布林
   const rsiV=rsi(closes);
@@ -1720,7 +1722,7 @@ async function runAll(){
       try{
         const parsed=parseChart(await fetchQuote(s.t));
         if(!parsed) continue;
-        const sc2=scoreStock(parsed.closes,parsed.volumes,parsed.highs,parsed.lows,soxxC,spyC);
+        const sc2=scoreStock(parsed.closes,parsed.volumes,parsed.highs,parsed.lows,soxxC,spyC,parsed.price);
 
         let finalScore;
         if(!isSentiment){
