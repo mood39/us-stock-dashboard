@@ -206,7 +206,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v4.3</span>
+      <span class="logo-sub">盤前參考版 v4.4</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -353,10 +353,15 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
 
   <!-- Top 10 -->
   <!-- 診斷條：直接顯示原始數據，方便跨裝置比對 -->
-  <div class="card gap hidden" id="diagCard" style="border-color:var(--yellow);">
-    <div style="font-size:11px;color:var(--yellow);font-weight:600;margin-bottom:8px;">🔍 資料診斷（用於排查裝置差異，可忽略）</div>
-    <div id="diagText" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7;word-break:break-all;"></div>
+  <div class="card gap hidden" id="diagCard" style="border-color:var(--border);padding:10px 16px;">
+    <div onclick="const d=document.getElementById('diagText');const a=document.getElementById('diagArrow');const h=d.style.display==='none';d.style.display=h?'block':'none';a.textContent=h?'▼':'▶';"
+         style="font-size:11px;color:var(--text3);font-weight:600;cursor:pointer;user-select:none;">
+      <span id="diagArrow">▶</span> 🔍 資料診斷（偵錯用，點擊展開）
+    </div>
+    <div id="diagText" style="display:none;font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7;word-break:break-all;margin-top:8px;"></div>
   </div>
+
+  <div id="verifyBox" class="gap hidden"></div>
 
   <div class="card gap hidden" id="tableCard">
     <div class="card-hd">
@@ -1152,7 +1157,9 @@ function ema(arr,p){
 }
 function macd(c){
   if(c.length<26) return 0;
-  return ema(c.slice(-12),12)-ema(c.slice(-26),26);
+  // EMA 需足夠暖身資料才會收斂，用完整序列計算再相減
+  // （原本各只餵 12/26 筆，EMA 尚未收斂，數值偏離真實 MACD）
+  return ema(c,12)-ema(c,26);
 }
 function ma(c,p){
   const s=c.slice(-Math.min(p,c.length));
@@ -1531,9 +1538,10 @@ function parseChart(data){
     }
   }
 
-  // 過去30日
-  const c21=closes.length>=21?n(closes[closes.length-21]):null;
-  const ret30=c21!==null?(price/c21-1)*100:null;
+  // 過去30個交易日漲跌（約 6 週）
+  // 註：closes.length-31 = 往回 30 個交易日
+  const c30=closes.length>=31?n(closes[closes.length-31]):null;
+  const ret30=c30!==null?(price/c30-1)*100:null;
 
   // 診斷資訊：可在 Console 用 window.__diag 查看實際取到的原始值
   const _diag={liveMP,lastClose,price,prev,todayChg:+todayChg.toFixed(2),chgSuspect,lastBarIsToday};
@@ -1843,6 +1851,33 @@ async function runAll(){
         );
       }catch(e){ console.warn('render row failed',s&&s.ticker,e); }
     });
+    // ── Top 3 交叉驗證：獨立重新向 Worker 取價，比對是否一致 ──
+    // 投資決策以 Top 3 為主，這三支必須確保資料正確
+    (async()=>{
+      try{
+        const checks=[];
+        for(const s of top10.slice(0,3)){
+          try{
+            const raw=await fetchQuote(s.ticker);
+            const mp=Number(raw?.chart?.result?.[0]?.meta?.regularMarketPrice);
+            if(!Number.isFinite(mp)||mp<=0){ checks.push(s.ticker+'：無法驗證'); continue; }
+            const diff=Math.abs(mp-s.price)/s.price*100;
+            if(diff>2) checks.push(s.ticker+'：顯示 $'+Number(s.price).toFixed(2)+' vs 複查 $'+mp.toFixed(2)+'（差 '+diff.toFixed(1)+'%）');
+          }catch(e){ checks.push(s.ticker+'：驗證失敗'); }
+          await delay(150);
+        }
+        const box=document.getElementById('verifyBox');
+        if(!box) return;
+        if(checks.length>0){
+          box.innerHTML='<div style="background:var(--red-bg);border:1px solid var(--red);border-radius:8px;padding:12px 16px;margin-bottom:12px;"><b style="color:var(--red);">⚠️ Top 3 資料驗證未通過</b><div style="font-size:12px;color:var(--text2);margin-top:6px;line-height:1.6;">'+checks.join('<br>')+'<br><span style="color:var(--yellow);">請按「重新分析」重跑，勿依此資料進場</span></div></div>';
+          box.classList.remove('hidden');
+        } else {
+          box.innerHTML='<div style="background:var(--green-bg);border:1px solid var(--green);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:12px;"><b style="color:var(--green);">✓ Top 3 資料已交叉驗證，價格一致</b></div>';
+          box.classList.remove('hidden');
+        }
+      }catch(e){}
+    })();
+
     window.__trace.push('rows='+rowsHtml.length);
     if(tbody){
       tbody.innerHTML=rowsHtml.join('');
