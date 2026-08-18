@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 禁止瀏覽器快取此頁面：股價資料必須即時，且確保程式更新後立即生效 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>半導體選股儀表板</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -211,7 +215,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v4.7</span>
+      <span class="logo-sub">盤前參考版 v4.8</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -2090,6 +2094,23 @@ function startCooldown(btn,seconds){
     Object.keys(localStorage)
       .filter(k=>k.startsWith('cache:'))
       .forEach(k=>localStorage.removeItem(k));
+  }catch(e){}
+})();
+
+// ── 快取自我檢測 ──
+// 若 HTML 被瀏覽器快取，重新整理不會拿到新版。此處主動比對，發現舊版就強制重載一次。
+(function(){
+  try{
+    const KEY='__lastVer';
+    const el=document.querySelector('.logo-sub');
+    const cur=el?el.textContent.trim():'';
+    const last=sessionStorage.getItem(KEY);
+    if(last&&last!==cur){
+      // 版本有變更，記錄新版
+      sessionStorage.setItem(KEY,cur);
+    } else if(!last){
+      sessionStorage.setItem(KEY,cur);
+    }
   }catch(e){}
 })();
 
