@@ -211,7 +211,7 @@ footer{text-align:center;padding:20px;font-size:11px;color:var(--text3);border-t
     <div class="logo">
       <div class="logo-mark" id="logoMark">SOX</div>
       <span class="logo-text" id="logoText">半導體選股儀表板</span>
-      <span class="logo-sub">盤前參考版 v4.6</span>
+      <span class="logo-sub">盤前參考版 v4.7</span>
     </div>
     <div class="header-actions">
       <span class="upd-time">更新：<span id="updTime">—</span></span>
@@ -1633,9 +1633,15 @@ function parseChart(data){
   // 此處僅計算比值供觀察，不納入評分
   let volRatio=null;
   if(volumes.length>=21){
-    const todayVol=Number(volumes[volumes.length-1]);
+    // 今日量優先用 meta.regularMarketVolume（Yahoo 明確標示的當日累計量）
+    // 日線陣列最後一筆在盤中／剛收盤時可能尚未更新完整，直接用會算出 0.1x 這種異常值
+    const metaVol=Number(r.meta&&r.meta.regularMarketVolume);
+    const barVol=Number(volumes[volumes.length-1]);
+    const todayVol=(Number.isFinite(metaVol)&&metaVol>0)?metaVol:barVol;
+    // 均量計算排除今日，且排除日線最後一筆（避免重複計入今日）
     let sum=0,cnt=0;
-    for(let i=volumes.length-21;i<volumes.length-1;i++){
+    const end=lastBarIsToday?volumes.length-1:volumes.length;
+    for(let i=Math.max(0,end-20);i<end;i++){
       const v=Number(volumes[i]);
       if(Number.isFinite(v)&&v>0){sum+=v;cnt++;}
     }
